@@ -396,8 +396,11 @@ public static class IngestInboundMessageHandler
         TriageOptions options, DateTimeOffset now, CancellationToken ct)
     {
         var windowStart = now.AddMinutes(-options.DedupWindowMinutes);
+        // Closed/dispatched incidents stay matchable within the window: a LATE reporter
+        // of a handled crash gets "already handled", not a fresh ticket (paper D-007).
         var candidates = await db.Tickets
-            .Where(t => (t.Status == TicketStatus.Provisional || t.Status == TicketStatus.Promoted)
+            .Where(t => (t.Status == TicketStatus.Provisional || t.Status == TicketStatus.Promoted
+                    || t.Status == TicketStatus.Closed)
                 && t.LocationLat != null && t.UpdatedAt >= windowStart)
             .ToListAsync(ct);
 
@@ -426,9 +429,21 @@ public static class IngestInboundMessageHandler
         ImageAnalysis? imageAnalysis, string? transcript, First10DbContext db,
         OutgoingMessages outgoing, DateTimeOffset now, TriageOptions options)
     {
-        conversation.ActiveTicketId = existing.Id;
         if (imageAnalysis is not null) imageAnalysis.Asset.TicketId = existing.Id;
         AppendEntry(db, existing.Id, conversation, message, imageAnalysis?.MediaRef, transcript);
+
+        // Late reporter of an incident already dispatched/handled: acknowledge, don't
+        // re-run the reporting flow — their session stays free for future incidents.
+        if (existing.Status == TicketStatus.Closed || existing.Dispatch != DispatchState.None)
+        {
+            existing.UpdatedAt = now;
+            AppendSystemNote(db, existing.Id, conversation.Id, "Late reporter attached — incident already being handled");
+            outgoing.Add(new SendOutboundMessage(conversation.Id, existing.Id, OutboundKind.IncidentAlreadyHandled, existing.Language ?? "english"));
+            outgoing.Add(new TicketUpserted(existing.Id));
+            return;
+        }
+
+        conversation.ActiveTicketId = existing.Id;
         Corroborate(existing, db, conversation.Id, now, options);
         outgoing.Add(new SendOutboundMessage(conversation.Id, existing.Id, OutboundKind.ReportAck, existing.Language ?? "english"));
         outgoing.Add(new RunExtraction(existing.Id, conversation.Id));

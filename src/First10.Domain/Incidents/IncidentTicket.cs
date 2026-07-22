@@ -74,6 +74,25 @@ public class IncidentTicket
     public double? LocationLat { get; set; }
     public double? LocationLng { get; set; }
 
+    // ---- M3: dispatch loop-closure (paper §1.4; R1e: driven ONLY by explicit
+    // dispatcher actions — these fields are set exclusively by DispatcherActionHandler) ----
+    public DispatchState Dispatch { get; set; }
+    public DateTimeOffset? DispatchedAt { get; set; }
+    public DateTimeOffset? ArrivedAt { get; set; }
+    public DateTimeOffset? TransportedAt { get; set; }
+
+    // ---- M3: timeline summarizer (paper §1.4 relay; R1f) ----
+    public string? TimelineDigest { get; set; }
+    /// <summary>⚠-joined contradiction list — surfaced, never hidden (R1f).</summary>
+    public string? Contradictions { get; set; }
+    public string? CrewBriefing { get; set; }
+    public string? SummarizerVersion { get; set; }
+
+    // ---- M3: dispatcher outcome marking — the labelled data for the weekly accuracy
+    // review and the FP-rate metric (paper objective 3) ----
+    public TicketOutcome? Outcome { get; set; }
+    public DateTimeOffset? OutcomeAt { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
@@ -83,4 +102,19 @@ public enum SeverityTier
     Low = 0,
     Medium = 1,
     High = 2,
+}
+
+public enum DispatchState
+{
+    None = 0,
+    Dispatched = 1,
+    Arrived = 2,
+    Transported = 3,
+}
+
+public enum TicketOutcome
+{
+    Real = 0,
+    False = 1,
+    Unverifiable = 2,
 }

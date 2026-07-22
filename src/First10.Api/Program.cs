@@ -85,6 +85,7 @@ if (!string.IsNullOrWhiteSpace(openAiKey))
     builder.Services.AddSingleton<IChatClient>(openAi.GetChatClient(model).AsIChatClient());
     builder.Services.AddSingleton<IIntentClassifier, ChatIntentClassifier>();
     builder.Services.AddSingleton<IIncidentExtractor, ChatIncidentExtractor>();
+    builder.Services.AddSingleton<ITimelineSummarizer, ChatTimelineSummarizer>();
     builder.Services.AddSingleton<ITranscriber>(new WhisperTranscriber(
         openAi.GetAudioClient(builder.Configuration["OpenAI:SttModel"] ?? "whisper-1")));
 }
@@ -92,6 +93,7 @@ else
 {
     builder.Services.AddSingleton<IIntentClassifier, HeuristicIntentClassifier>();
     builder.Services.AddSingleton<IIncidentExtractor, HeuristicIncidentExtractor>();
+    builder.Services.AddSingleton<ITimelineSummarizer, HeuristicTimelineSummarizer>();
     builder.Services.AddSingleton<ITranscriber, NullTranscriber>();
 }
 

@@ -3,6 +3,8 @@
 **Target:** 2 – 7 Aug 2026 (parallel with M2 tail) · **Paper mapping:** W7/W8 · **Depends on:** M0 shell; M2 for live data
 **Goal:** the FRSC duty officer's working surface — review queue, live incident timeline, loop-closure actions, outcome marking. Usable by a non-technical dispatcher (§7.1: time-to-action ≤ 15s on a test ticket).
 
+**Status (22 Jul): ~75% BUILT, core verified live.** Done: timeline summarizer with contradiction surfacing (R1f — live: "two people trapped" vs "everybody don comot" quoted verbatim), dispatch/arrive/transport actions with strictly-ordered transitions + loop-closure to every reporter (R1e via outbox), LLM crew briefing at dispatch (hallucination-hardened after a prompt-example leak was caught live), outcome marking → sticky reputation feedback, late-reporter "already handled" path, console detail panel, time-to-dispatch metric recorded per dispatch. Remaining: queue ordering by disposition/severity, stats page, pending-state rendering, per-incident SignalR groups, printable briefing, usability pass with a non-developer. 85 tests.
+
 ## Exit criteria
 
 - [ ] Dispatcher can work a full incident end-to-end from the console: see it arrive → review evidence (play audio, read transcript, view blurred photo) → mark dispatched/arrived/transported → reporter receives each status message.

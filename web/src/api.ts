@@ -50,6 +50,9 @@ export const severityColor: Record<SeverityTier, string> = {
   2: '#c00',
 };
 
+export type DispatchState = 0 | 1 | 2 | 3; // None | Dispatched | Arrived | Transported
+export type TicketOutcome = 0 | 1 | 2; // Real | False | Unverifiable
+
 export interface TicketListItem {
   id: string;
   status: TicketStatus;
@@ -62,9 +65,32 @@ export interface TicketListItem {
   flags: string | null;
   summary: string;
   locationResolvedAt: string | null;
+  dispatch: DispatchState;
+  outcome: TicketOutcome | null;
+  timelineDigest: string | null;
+  contradictions: string | null;
+  crewBriefing: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export const postAction = (ticketId: string, action: 'dispatch' | 'arrive' | 'transport') =>
+  fetch(`/api/tickets/${ticketId}/actions/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ officer: 'duty-officer' }),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`${r.status}`);
+  });
+
+export const postOutcome = (ticketId: string, outcome: TicketOutcome) =>
+  fetch(`/api/tickets/${ticketId}/actions/outcome`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outcome, officer: 'duty-officer' }),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`${r.status}`);
+  });
 
 export interface TimelineEntryDto {
   id: string;

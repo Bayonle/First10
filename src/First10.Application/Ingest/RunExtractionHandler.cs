@@ -149,6 +149,13 @@ public static class RunExtractionHandler
             }
         }
 
+        // Timeline digest + contradiction surfacing (R1f): worth an AI pass once there
+        // is disagreement potential — multiple reporters, or narrative + location both.
+        if (ticket.ReporterCount >= 2 || (ticket.LocationResolvedAt is not null && narrative is not null))
+        {
+            outgoing.Add(new First10.Application.Summaries.RunSummarization(ticket.Id, command.ConversationId));
+        }
+
         outgoing.Add(new TicketUpserted(ticket.Id));
         return outgoing;
     }

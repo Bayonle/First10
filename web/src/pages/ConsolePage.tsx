@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   dispositionColor,
@@ -8,9 +8,12 @@ import {
   fetchTickets,
   fetchTimeline,
   mediaUrl,
+  postAction,
+  postOutcome,
   severityColor,
   severityLabel,
   ticketStatusLabel,
+  type TicketListItem,
   type TimelineEntryDto,
 } from '../api';
 import { useConsoleHub } from '../useConsoleHub';
@@ -105,11 +108,89 @@ export default function ConsolePage() {
         </section>
 
         <section style={{ flex: 1 }}>
-          <h2>Timeline</h2>
-          {selectedId === null && <p>Select an incident.</p>}
-          {timeline.data?.map((entry) => <TimelineRow key={entry.id} entry={entry} />)}
+          {selectedId === null && (
+            <>
+              <h2>Timeline</h2>
+              <p>Select an incident.</p>
+            </>
+          )}
+          {selectedId !== null && (
+            <>
+              <DetailPanel ticket={tickets.data?.find((t) => t.id === selectedId)} />
+              <h2>Timeline</h2>
+              {timeline.data?.map((entry) => <TimelineRow key={entry.id} entry={entry} />)}
+            </>
+          )}
         </section>
       </div>
+    </div>
+  );
+}
+
+const dispatchLabels = ['—', '🚑 Dispatched', '📍 Arrived', '🏥 Transported'];
+
+function DetailPanel({ ticket }: { ticket: TicketListItem | undefined }) {
+  const queryClient = useQueryClient();
+  const invalidate = () =>
+    setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['tickets'] }), 800);
+  const action = useMutation({
+    mutationFn: (a: 'dispatch' | 'arrive' | 'transport') => postAction(ticket!.id, a),
+    onSuccess: invalidate,
+  });
+  const outcome = useMutation({
+    mutationFn: (o: 0 | 1 | 2) => postOutcome(ticket!.id, o),
+    onSuccess: invalidate,
+  });
+
+  if (!ticket) return null;
+  const closed = ticket.status === 4 || ticket.status === 3;
+
+  return (
+    <div style={{ border: '1px solid #ccc', borderRadius: 8, padding: '0.75rem', marginBottom: '1rem', background: '#fcfcfc' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <strong>{dispatchLabels[ticket.dispatch]}</strong>
+        {/* Loop-closure: each click sends the status to every reporter (R1e) */}
+        <button disabled={ticket.dispatch !== 0 || closed || action.isPending} onClick={() => action.mutate('dispatch')}>
+          🚑 Dispatch
+        </button>
+        <button disabled={ticket.dispatch !== 1 || action.isPending} onClick={() => action.mutate('arrive')}>
+          📍 Arrived
+        </button>
+        <button disabled={ticket.dispatch !== 2 || action.isPending} onClick={() => action.mutate('transport')}>
+          🏥 Transported
+        </button>
+        <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#666' }}>
+          outcome:
+          {ticket.outcome !== null ? (
+            <strong> {['real', 'FALSE', 'unverifiable'][ticket.outcome]}</strong>
+          ) : (
+            <>
+              <button onClick={() => outcome.mutate(0)} disabled={outcome.isPending}> real</button>
+              <button onClick={() => outcome.mutate(1)} disabled={outcome.isPending}> false</button>
+              <button onClick={() => outcome.mutate(2)} disabled={outcome.isPending}> unverifiable</button>
+            </>
+          )}
+        </span>
+      </div>
+
+      {ticket.timelineDigest && (
+        <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>
+          <strong>Digest:</strong> {ticket.timelineDigest}
+        </div>
+      )}
+      {ticket.contradictions && (
+        <div style={{ marginTop: '0.4rem', padding: '0.4rem', background: '#fff3e0', border: '1px solid #e90', borderRadius: 6, fontSize: '0.9rem' }}>
+          <strong>⚠ Contradictions:</strong> {ticket.contradictions}
+        </div>
+      )}
+      {ticket.crewBriefing && (
+        <details style={{ marginTop: '0.4rem' }}>
+          <summary style={{ cursor: 'pointer' }}>🚑 Crew briefing</summary>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.85rem', background: '#f4f4f4', padding: '0.5rem', borderRadius: 6 }}>
+            {ticket.crewBriefing}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }

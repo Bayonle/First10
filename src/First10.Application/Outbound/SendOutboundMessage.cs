@@ -20,6 +20,15 @@ public enum OutboundKind
     /// <summary>Clinically pre-approved safety template (paper §1.4). Text resolved from
     /// the template store by TemplateId — never from static strings, never generated.</summary>
     MicroInstruction = 6,
+
+    // Loop-closure statuses (paper §1.4). Sent EXCLUSIVELY by DispatcherActionHandler —
+    // no other code path may emit these (R1e). Transport wording carries status only:
+    // no victim identity, no medical detail (paper §1.5 exclusions).
+    DispatchedNotice = 7,
+    ArrivedNotice = 8,
+    TransportedNotice = 9,
+    /// <summary>Late reporter of an incident already being handled (paper D-007 decoupling).</summary>
+    IncidentAlreadyHandled = 10,
 }
 
 /// <summary>
@@ -79,5 +88,33 @@ public static class OutboundTexts
             "Ìjábọ̀ yín wà lọ́wọ́ FRSC dispatch fún àyẹ̀wò. A ó fún yín ní ìròyìn ní kété tí nǹkan bá yí padà.",
         (OutboundKind.StatusUnderReview, _) =>
             "Your report is with FRSC dispatch for review. We will update you as soon as anything changes.",
+
+        (OutboundKind.DispatchedNotice, "pidgin") =>
+            "UPDATE: FRSC don dispatch responders to the incident wey you report. Help dey come.",
+        (OutboundKind.DispatchedNotice, "yoruba") =>
+            "ÌRÒYÌN: FRSC ti rán àwọn olùdáhùn sí ibi ìjàǹbá tí ẹ jábọ̀. Ìrànlọ́wọ́ ń bọ̀.",
+        (OutboundKind.DispatchedNotice, _) =>
+            "UPDATE: FRSC has dispatched responders to the incident you reported. Help is on the way.",
+
+        (OutboundKind.ArrivedNotice, "pidgin") =>
+            "UPDATE: responders don reach the scene. Thank you for your report.",
+        (OutboundKind.ArrivedNotice, "yoruba") =>
+            "ÌRÒYÌN: àwọn olùdáhùn ti dé ibi ìṣẹ̀lẹ̀ náà. Ẹ ṣé fún ìjábọ̀ yín.",
+        (OutboundKind.ArrivedNotice, _) =>
+            "UPDATE: responders have arrived at the scene. Thank you for your report.",
+
+        (OutboundKind.TransportedNotice, "pidgin") =>
+            "UPDATE: dem don move the people wey involve go where dem go care for them. Your report make this happen — thank you.",
+        (OutboundKind.TransportedNotice, "yoruba") =>
+            "ÌRÒYÌN: wọ́n ti gbé àwọn tí ọ̀rọ̀ kàn lọ sí ibi ìtọ́jú. Ìjábọ̀ yín ló mú èyí ṣẹ — ẹ ṣé.",
+        (OutboundKind.TransportedNotice, _) =>
+            "UPDATE: those involved have been moved for care. Your report made this happen — thank you.",
+
+        (OutboundKind.IncidentAlreadyHandled, "pidgin") =>
+            "Thank you — responders don already dey aware of this incident and dem dey handle am.",
+        (OutboundKind.IncidentAlreadyHandled, "yoruba") =>
+            "Ẹ ṣé — àwọn olùdáhùn ti mọ̀ nípa ìjàǹbá yìí, wọ́n sì ń bójú tó o.",
+        (OutboundKind.IncidentAlreadyHandled, _) =>
+            "Thank you — responders are already aware of this incident and it is being handled.",
     };
 }

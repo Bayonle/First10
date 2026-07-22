@@ -17,6 +17,11 @@ public sealed record TicketListItem(
     string? Flags,
     string Summary,
     DateTimeOffset? LocationResolvedAt,
+    DispatchState Dispatch,
+    TicketOutcome? Outcome,
+    string? TimelineDigest,
+    string? Contradictions,
+    string? CrewBriefing,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
@@ -47,7 +52,9 @@ public class TicketsController(First10DbContext db) : ControllerBase
             .Select(t => new TicketListItem(
                 t.Id, t.Status, t.Disposition, t.Evidence, t.Severity, t.CasualtyEstimate,
                 t.ReporterCount, t.Language, t.Flags,
-                t.Summary, t.LocationResolvedAt, t.CreatedAt, t.UpdatedAt))
+                t.Summary, t.LocationResolvedAt,
+                t.Dispatch, t.Outcome, t.TimelineDigest, t.Contradictions, t.CrewBriefing,
+                t.CreatedAt, t.UpdatedAt))
             .ToListAsync(ct);
 
     [HttpGet("{id:guid}/timeline")]
