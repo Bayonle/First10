@@ -35,7 +35,7 @@ public class IngestInboundMessageHandlerTests
 
     private static Task<OutgoingMessages> Handle(First10DbContext db, InboundChannelMessage msg, TriageOptions? options = null) =>
         IngestInboundMessageHandler.Handle(
-            msg, db, new HeuristicIntentClassifier(), new NullMediaStore(), new NullHasher(),
+            msg, db, new HeuristicIntentClassifier(), new TestNullTranscriber(), new NullMediaStore(), new NullHasher(),
             options ?? new TriageOptions(), NullLogger.Instance, CancellationToken.None);
 
     private static InboundChannelMessage Message(

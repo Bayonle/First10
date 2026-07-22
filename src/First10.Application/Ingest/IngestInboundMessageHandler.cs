@@ -1,4 +1,5 @@
 using First10.Application.Outbound;
+using First10.Application.Sessions;
 using First10.Domain.Abstractions;
 using First10.Domain.Channels;
 using First10.Domain.Conversations;
@@ -12,12 +13,10 @@ using Wolverine;
 namespace First10.Application.Ingest;
 
 /// <summary>
-/// The triage funnel orchestrator (D-008). Order per message:
-///   dedup → conversation resolve → active-session routing (skip intent)
-///   → Stage 0 gates (rate limit, reputation, pHash, geofence, flood)
-///   → Stage 1 intent (text only; evidence-first for photos)
-///   → Stage 2 disposition → ticket + timeline + outbound (challenge / canned reply).
-/// M2 replaces the stub session with the ReportingSession saga; the funnel itself stays.
+/// The triage funnel orchestrator (D-008) + session routing (M2). Order per message:
+///   dedup → conversation resolve → session boundary (lazy backstop; saga is primary)
+///   → active-session enrichment OR Stage 0/1/2 triage → ticket + corroboration dedup
+///   → feedback outbound → saga + extraction cascades.
 /// </summary>
 public static class IngestInboundMessageHandler
 {
@@ -25,6 +24,7 @@ public static class IngestInboundMessageHandler
         InboundChannelMessage message,
         First10DbContext db,
         IIntentClassifier intentClassifier,
+        ITranscriber transcriber,
         IMediaStore mediaStore,
         IPerceptualHasher hasher,
         TriageOptions options,
@@ -69,26 +69,31 @@ public static class IngestInboundMessageHandler
         if (trust == TrustLevel.Blocked)
         {
             logger.LogInformation("Blocked reporter {User} dropped", message.ExternalUserId);
-            return outgoing; // record nothing, send nothing
+            return outgoing;
         }
 
-        // ---- Stage 0 media analysis (images) ----
+        // ---- Stage 0 media analysis ----
         var imageAnalysis = message.Kind == InboundKind.Image && message.MediaRef is not null
             ? await AnalyzeImage(message.MediaRef, db, mediaStore, hasher, options, now, logger, ct)
             : null;
 
+        // ---- STT (M2, D-010): transcribe voice before triage ----
+        string? transcript = null;
+        if (message.Kind == InboundKind.Voice && message.MediaRef is not null)
+        {
+            transcript = await Transcribe(message.MediaRef, mediaStore, transcriber, logger, ct);
+        }
+
         var outsideCorridor = message.Location is { } pin
             && !CorridorGeofence.IsNearCorridor(pin, options.CorridorCenterline, options.CorridorBufferKm);
 
-        // ---- Active-session routing: enrich the open ticket, no intent call ----
+        // ---- Active-session routing ----
         IncidentTicket? activeTicket = conversation.ActiveTicketId is { } activeId
-            ? await db.Tickets.SingleOrDefaultAsync(t => t.Id == activeId && t.Status == TicketStatus.Provisional, ct)
+            ? await db.Tickets.SingleOrDefaultAsync(
+                t => t.Id == activeId && (t.Status == TicketStatus.Provisional || t.Status == TicketStatus.Promoted), ct)
             : null;
 
-        // Session boundary (lazy until M2's saga): a session ends on EITHER
-        //   (a) inactivity — silence longer than the window, or
-        //   (b) age — the ticket is older than the max session age (regular messages
-        //       must not keep an ancient session alive by resetting the clock).
+        // Lazy session boundary — backstop behind the saga's proactive timers.
         var inactivityExceeded = previousInboundAt != default
             && now - previousInboundAt > TimeSpan.FromMinutes(options.SessionInactivityMinutes);
         var maxAgeExceeded = activeTicket is not null
@@ -96,40 +101,15 @@ public static class IngestInboundMessageHandler
 
         if (activeTicket is not null && (inactivityExceeded || maxAgeExceeded))
         {
-            var challengeUnanswered = activeTicket.ChallengeSentAt is not null
-                && activeTicket.Evidence <= EvidenceLevel.TextOnly
-                && activeTicket.LocationResolvedAt is null;
-
-            var reason = maxAgeExceeded
-                ? $"session older than {options.SessionMaxAgeMinutes} minutes"
-                : $"{options.SessionInactivityMinutes}+ minutes of silence";
-
-            if (challengeUnanswered)
-            {
-                // Nothing actionable ever arrived — expire, but keep it visible:
-                // the dispatcher makes the kill call, never a timer (D-007).
-                activeTicket.Status = TicketStatus.ExpiredUnverified;
-                AppendSystemNote(db, activeTicket.Id, conversation.Id,
-                    $"Session expired ({reason}): challenge was never answered");
-            }
-            else
-            {
-                // Evidence and/or location exist — the incident stays pending for
-                // dispatch; only the reporter session closes.
-                AppendSystemNote(db, activeTicket.Id, conversation.Id,
-                    $"Reporter session closed ({reason}) — later messages open a new incident");
-            }
-
-            activeTicket.UpdatedAt = now;
-            outgoing.Add(new TicketUpserted(activeTicket.Id));
-            conversation.ActiveTicketId = null;
-            activeTicket = null; // current message is triaged as a fresh report below
+            CloseSession(activeTicket, conversation, maxAgeExceeded, options, db, outgoing);
+            activeTicket = null;
         }
 
         if (activeTicket is not null)
         {
-            AppendEntry(db, activeTicket.Id, conversation, message, imageAnalysis?.MediaRef);
-            await EnrichTicket(activeTicket, conversation, message, imageAnalysis, outsideCorridor, db, options, now, outgoing, ct);
+            AppendEntry(db, activeTicket.Id, conversation, message, imageAnalysis?.MediaRef, transcript);
+            await EnrichTicket(activeTicket, conversation, message, imageAnalysis, outsideCorridor,
+                transcript, db, options, now, outgoing, ct);
             outgoing.Add(new TicketUpserted(activeTicket.Id));
             if (imageAnalysis is not null) imageAnalysis.Asset.TicketId = activeTicket.Id;
             return outgoing;
@@ -146,16 +126,23 @@ public static class IngestInboundMessageHandler
             .CountAsync(ct);
         var rateLimited = recentOpens >= options.MaxNewIncidentsPerWindow;
 
-        // ---- Stage 1 intent (evidence-first for non-text) ----
+        // ---- Stage 1 intent (evidence-first for media; transcript when available) ----
         IntentResult intent = message.Kind switch
         {
-            // A photo IS the report — never wait on a classifier (D-008 evidence-first).
             InboundKind.Image => new IntentResult(MessageIntent.NewIncident, "english", IntentConfidence.High, "evidence-first"),
-            // No STT until M2: treat a voice note as an incident report, flag for review.
+            InboundKind.Voice when transcript is not null =>
+                (await intentClassifier.ClassifyAsync(transcript, ct)) with { ClassifierVersion = "stt+" },
             InboundKind.Voice => new IntentResult(MessageIntent.NewIncident, "english", IntentConfidence.Low, "voice-untranscribed"),
             InboundKind.LocationPin => new IntentResult(MessageIntent.NewIncident, "english", IntentConfidence.Low, "pin-only"),
             _ => await intentClassifier.ClassifyAsync(message.Text ?? string.Empty, ct),
         };
+
+        // A voice note is evidence of presence even if its words classify as chatter —
+        // bias toward incident stands (D-008).
+        if (message.Kind == InboundKind.Voice && intent.Intent is MessageIntent.Question or MessageIntent.GreetingOrTest)
+        {
+            intent = intent with { Intent = MessageIntent.NewIncident, Confidence = IntentConfidence.Low };
+        }
 
         // ---- Stage 0 flood state (R11) ----
         var floodWindowStart = now.AddMinutes(-options.FloodWindowMinutes);
@@ -167,7 +154,7 @@ public static class IngestInboundMessageHandler
         {
             InboundKind.Image => EvidenceLevel.Photo,
             InboundKind.Voice => EvidenceLevel.VoiceOnly,
-            InboundKind.LocationPin => EvidenceLevel.TextOnly, // pin alone: location but no scene evidence
+            InboundKind.LocationPin => EvidenceLevel.TextOnly,
             _ => EvidenceLevel.TextOnly,
         };
 
@@ -180,13 +167,10 @@ public static class IngestInboundMessageHandler
             case Disposition.Drop:
                 logger.LogInformation("Dropped inbound from {User}: {Flags}",
                     message.ExternalUserId, string.Join(',', decision.Flags));
-                return outgoing; // dropped: no ticket, no reply (starve spam)
+                return outgoing;
 
             case Disposition.None:
-                // Not an incident — record on the conversation (no ticket) + canned reply,
-                // throttled: at most one canned reply per conversation per 10 minutes
-                // (repeated greetings must not produce a parrot).
-                AppendEntry(db, ticketId: null, conversation, message, imageAnalysis?.MediaRef);
+                AppendEntry(db, ticketId: null, conversation, message, imageAnalysis?.MediaRef, transcript);
                 if (conversation.LastCannedReplyAt is null || conversation.LastCannedReplyAt < now.AddMinutes(-10))
                 {
                     conversation.LastCannedReplyAt = now;
@@ -195,12 +179,24 @@ public static class IngestInboundMessageHandler
                 return outgoing;
         }
 
-        // ---- Open the provisional ticket (D-007: at session START) ----
+        // ---- Corroboration dedup (M2, paper §1.4): pin-bearing first message may
+        // belong to an incident another reporter already opened ----
+        if (message.Location is { } location)
+        {
+            var existing = await FindNearbyOpenIncident(db, conversation.Id, location, options, now, ct);
+            if (existing is not null)
+            {
+                AttachReporter(existing, conversation, message, imageAnalysis, transcript, db, outgoing, now, options);
+                return outgoing;
+            }
+        }
+
+        // ---- Open the provisional ticket (D-007) ----
         var ticket = new IncidentTicket
         {
             Id = Guid.NewGuid(),
             Status = TicketStatus.Provisional,
-            Summary = Summarize(message),
+            Summary = Summarize(message, transcript),
             Disposition = decision.Disposition,
             Evidence = evidence,
             Language = intent.Language,
@@ -213,24 +209,22 @@ public static class IngestInboundMessageHandler
         conversation.ActiveTicketId = ticket.Id;
         if (imageAnalysis is not null) imageAnalysis.Asset.TicketId = ticket.Id;
 
-        AppendEntry(db, ticket.Id, conversation, message, imageAnalysis?.MediaRef);
+        AppendEntry(db, ticket.Id, conversation, message, imageAnalysis?.MediaRef, transcript);
         AppendSystemNote(db, ticket.Id, conversation.Id,
             $"Triaged: {decision.Disposition} · evidence={evidence} · intent={intent.Intent}({intent.Confidence}, {intent.ClassifierVersion})"
             + (decision.Flags.Count > 0 ? $" · flags=[{string.Join(',', decision.Flags)}]" : ""));
 
-        if (message.Location is not null)
+        if (message.Location is { } newPin)
         {
             ticket.LocationResolvedAt = now;
+            ticket.LocationLat = newPin.Latitude;
+            ticket.LocationLng = newPin.Longitude;
         }
 
-        // Every report gets an immediate response — a reporter must never wonder
-        // whether their message landed (paper §1.2 point 5; cockpit-tested gap).
+        // Every report gets an immediate response (paper §1.2.5).
         if (decision.SendChallenge)
         {
             ticket.ChallengeSentAt = now;
-            // Pin-first reports already resolved location — don't ask for what they
-            // just sent; the "location received, please send a photo" text is the
-            // correct remaining ask (edge case found via browser sweep).
             var challengeKind = ticket.LocationResolvedAt is not null
                 ? OutboundKind.PinReceivedAck
                 : OutboundKind.ElicitationChallenge;
@@ -238,7 +232,6 @@ public static class IngestInboundMessageHandler
         }
         else if (ticket.Evidence >= EvidenceLevel.VoiceOnly && ticket.LocationResolvedAt is null)
         {
-            // Scene evidence first (photo/voice), no location: the §1.4 pin-fallback flow.
             ticket.LocationRequestSentAt = now;
             outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.LocationPinRequest, intent.Language));
         }
@@ -248,22 +241,27 @@ public static class IngestInboundMessageHandler
             outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ReportAck, intent.Language));
         }
 
+        MaybePromote(ticket, db, conversation.Id);
+
+        // ---- M2 cascades: session saga (timers) + async extraction ----
+        outgoing.Add(new SessionOpened(
+            ticket.Id,
+            PinAskPending: ticket.LocationResolvedAt is null,
+            ChallengePending: ticket.ChallengeSentAt is not null));
+        outgoing.Add(new RunExtraction(ticket.Id, conversation.Id));
+
         outgoing.Add(new TicketUpserted(ticket.Id));
         return outgoing;
     }
 
-    /// <summary>
-    /// Evidence arriving on an open ticket can only raise its disposition (D-007/D-008),
-    /// and every contribution is acknowledged exactly once (tracked on the ticket):
-    /// pin before photo → PinReceivedAck; photo/voice without location → pin request;
-    /// evidence + location complete → ReportAck.
-    /// </summary>
+    /// <summary>Evidence arriving on an open ticket: acks, evidence raise, merge check, promotion.</summary>
     private static async Task EnrichTicket(
         IncidentTicket ticket,
         Conversation conversation,
         InboundChannelMessage message,
         ImageAnalysis? imageAnalysis,
         bool outsideCorridor,
+        string? transcript,
         First10DbContext db,
         TriageOptions options,
         DateTimeOffset now,
@@ -274,19 +272,29 @@ public static class IngestInboundMessageHandler
         var language = ticket.Language ?? "english";
 
         // ---- Location resolution + reporter feedback ----
-        if (message.Kind == InboundKind.LocationPin && ticket.LocationResolvedAt is null)
+        if (message.Kind == InboundKind.LocationPin && ticket.LocationResolvedAt is null && message.Location is { } pin)
         {
             ticket.LocationResolvedAt = now;
+            ticket.LocationLat = pin.Latitude;
+            ticket.LocationLng = pin.Longitude;
             AppendSystemNote(db, ticket.Id, conversation.Id, "Location pin received — location resolved");
+
+            // The pin may reveal this is the SAME incident another reporter already
+            // opened — merge into the older ticket (M2 corroboration).
+            var older = await FindNearbyOpenIncident(db, conversation.Id, pin, options, now, ct);
+            if (older is not null)
+            {
+                await MergeInto(older, ticket, conversation, db, outgoing, now, options, ct);
+                return;
+            }
 
             if (ticket.Evidence >= EvidenceLevel.VoiceOnly && ticket.AckSentAt is null)
             {
-                ticket.AckSentAt = now; // scene evidence + location → report is complete
+                ticket.AckSentAt = now;
                 outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ReportAck, language));
             }
             else if (ticket.AckSentAt is null)
             {
-                // Pin first, still no photo: acknowledge, keep the photo ask alive.
                 outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.PinReceivedAck, language));
             }
         }
@@ -302,8 +310,6 @@ public static class IngestInboundMessageHandler
             }
             else if (ticket.LocationRequestSentAt is null)
             {
-                // Evidence in hand, location still missing — focused pin request
-                // (even if the original challenge mentioned it; reporters skim).
                 ticket.LocationRequestSentAt = now;
                 outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.LocationPinRequest, language));
             }
@@ -340,7 +346,6 @@ public static class IngestInboundMessageHandler
                 RateLimited: false, floodActive,
                 flags.Contains("reused-image"), flags.Contains("outside-corridor")));
 
-            // Enrichment never lowers a disposition a human may already be acting on.
             var newDisposition = decision.Disposition > ticket.Disposition ? decision.Disposition : ticket.Disposition;
             if (newDisposition != ticket.Disposition || newEvidence != ticket.Evidence)
             {
@@ -352,13 +357,157 @@ public static class IngestInboundMessageHandler
             ticket.Flags = flags.Count > 0 ? string.Join(',', flags.OrderBy(f => f)) : null;
         }
 
+        MaybePromote(ticket, db, conversation.Id);
+
+        if (message.Kind is InboundKind.Text or InboundKind.Voice or InboundKind.Image)
+        {
+            outgoing.Add(new RunExtraction(ticket.Id, conversation.Id)); // narrative changed
+        }
+
         SendReminderIfSilent(ticket, conversation, message, now, outgoing);
     }
 
+    // ---- M2 corroboration (paper §1.4: 200m + 5min ⇒ auto-verify) ----
+
+    private static async Task<IncidentTicket?> FindNearbyOpenIncident(
+        First10DbContext db, Guid ownConversationId, GeoPoint location,
+        TriageOptions options, DateTimeOffset now, CancellationToken ct)
+    {
+        var windowStart = now.AddMinutes(-options.DedupWindowMinutes);
+        var candidates = await db.Tickets
+            .Where(t => (t.Status == TicketStatus.Provisional || t.Status == TicketStatus.Promoted)
+                && t.LocationLat != null && t.UpdatedAt >= windowStart)
+            .ToListAsync(ct);
+
+        // Must be a DIFFERENT reporter's incident (corroboration means independence).
+        // Checked against timeline history, not ActiveTicketId — a closed session must
+        // not let a reporter corroborate their own earlier report.
+        foreach (var candidate in candidates.OrderBy(t => t.CreatedAt))
+        {
+            var isOwn = await db.TimelineEntries.AnyAsync(
+                e => e.TicketId == candidate.Id && e.ConversationId == ownConversationId, ct);
+            if (isOwn) continue;
+
+            var distanceKm = CorridorGeofence.DistanceKm(
+                location, new GeoPoint(candidate.LocationLat!.Value, candidate.LocationLng!.Value));
+            if (distanceKm * 1000 <= options.DedupRadiusMeters)
+            {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>New reporter's first message lands directly on an existing incident.</summary>
+    private static void AttachReporter(
+        IncidentTicket existing, Conversation conversation, InboundChannelMessage message,
+        ImageAnalysis? imageAnalysis, string? transcript, First10DbContext db,
+        OutgoingMessages outgoing, DateTimeOffset now, TriageOptions options)
+    {
+        conversation.ActiveTicketId = existing.Id;
+        if (imageAnalysis is not null) imageAnalysis.Asset.TicketId = existing.Id;
+        AppendEntry(db, existing.Id, conversation, message, imageAnalysis?.MediaRef, transcript);
+        Corroborate(existing, db, conversation.Id, now, options);
+        outgoing.Add(new SendOutboundMessage(conversation.Id, existing.Id, OutboundKind.ReportAck, existing.Language ?? "english"));
+        outgoing.Add(new RunExtraction(existing.Id, conversation.Id));
+        outgoing.Add(new TicketUpserted(existing.Id));
+    }
+
+    /// <summary>A pin on an open ticket revealed it's the same incident as an older one.</summary>
+    private static async Task MergeInto(
+        IncidentTicket survivor, IncidentTicket merged, Conversation conversation,
+        First10DbContext db, OutgoingMessages outgoing, DateTimeOffset now,
+        TriageOptions options, CancellationToken ct)
+    {
+        // Re-point the merged ticket's timeline onto the survivor — the relay timeline
+        // keeps per-reporter identity via ConversationId (paper §1.4 relay).
+        var entries = await db.TimelineEntries.Where(e => e.TicketId == merged.Id).ToListAsync(ct);
+        foreach (var entry in entries)
+        {
+            entry.TicketId = survivor.Id;
+        }
+
+        merged.Status = TicketStatus.Merged;
+        merged.UpdatedAt = now;
+        conversation.ActiveTicketId = survivor.Id;
+
+        Corroborate(survivor, db, conversation.Id, now, options);
+        // The merged reporter's location contribution counts for the survivor too.
+        if (survivor.LocationResolvedAt is null && merged.LocationResolvedAt is not null)
+        {
+            survivor.LocationResolvedAt = merged.LocationResolvedAt;
+            survivor.LocationLat = merged.LocationLat;
+            survivor.LocationLng = merged.LocationLng;
+        }
+
+        outgoing.Add(new SendOutboundMessage(conversation.Id, survivor.Id, OutboundKind.ReportAck, survivor.Language ?? "english"));
+        outgoing.Add(new SessionEnded(merged.Id)); // complete the merged ticket's saga
+        outgoing.Add(new RunExtraction(survivor.Id, conversation.Id));
+        outgoing.Add(new TicketUpserted(survivor.Id));
+        outgoing.Add(new TicketUpserted(merged.Id));
+    }
+
+    private static void Corroborate(
+        IncidentTicket ticket, First10DbContext db, Guid conversationId, DateTimeOffset now, TriageOptions options)
+    {
+        ticket.ReporterCount += 1;
+        ticket.Disposition = Disposition.AutoVerify;
+        var flags = (ticket.Flags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []).ToHashSet();
+        flags.Add("corroborated");
+        ticket.Flags = string.Join(',', flags.OrderBy(f => f));
+        ticket.UpdatedAt = now;
+        AppendSystemNote(db, ticket.Id, conversationId,
+            $"Reporter #{ticket.ReporterCount} corroborated within {options.DedupRadiusMeters}m/{options.DedupWindowMinutes}min — AUTO-VERIFIED");
+        MaybePromote(ticket, db, conversationId);
+    }
+
+    /// <summary>Promotion rule (D-007): (photo OR corroboration) AND location resolved.</summary>
+    private static void MaybePromote(IncidentTicket ticket, First10DbContext db, Guid conversationId)
+    {
+        if (ticket.Status == TicketStatus.Provisional
+            && ticket.LocationResolvedAt is not null
+            && (ticket.Evidence >= EvidenceLevel.Photo || ticket.ReporterCount >= 2))
+        {
+            ticket.Status = TicketStatus.Promoted;
+            AppendSystemNote(db, ticket.Id, conversationId,
+                "PROMOTED: evidence sufficiency met — (photo OR corroboration) AND location");
+        }
+    }
+
+    private static void CloseSession(
+        IncidentTicket activeTicket, Conversation conversation, bool maxAgeExceeded,
+        TriageOptions options, First10DbContext db, OutgoingMessages outgoing)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var reason = maxAgeExceeded
+            ? $"session older than {options.SessionMaxAgeMinutes} minutes"
+            : $"{options.SessionInactivityMinutes}+ minutes of silence";
+
+        var challengeUnanswered = activeTicket.ChallengeSentAt is not null
+            && activeTicket.Evidence <= EvidenceLevel.TextOnly
+            && activeTicket.LocationResolvedAt is null;
+
+        if (challengeUnanswered)
+        {
+            activeTicket.Status = TicketStatus.ExpiredUnverified;
+            AppendSystemNote(db, activeTicket.Id, conversation.Id,
+                $"Session expired ({reason}): challenge was never answered");
+        }
+        else
+        {
+            AppendSystemNote(db, activeTicket.Id, conversation.Id,
+                $"Reporter session closed ({reason}) — later messages open a new incident");
+        }
+
+        activeTicket.UpdatedAt = now;
+        outgoing.Add(new TicketUpserted(activeTicket.Id));
+        outgoing.Add(new SessionEnded(activeTicket.Id));
+        conversation.ActiveTicketId = null;
+    }
+
     /// <summary>
-    /// "Never silent, never nagging": if this message earned no other reply (a question
-    /// mid-flow, a duplicate photo), re-state whatever the session is waiting for —
-    /// or the report's status if it's complete. Throttled: quick texts 30s, media 120s.
+    /// "Never silent, never nagging": if this message earned no other reply, re-state
+    /// whatever the session is waiting for. Throttled: texts 30s, media 120s.
     /// </summary>
     private static void SendReminderIfSilent(
         IncidentTicket ticket,
@@ -369,16 +518,15 @@ public static class IngestInboundMessageHandler
     {
         if (outgoing.OfType<SendOutboundMessage>().Any())
         {
-            return; // this message already got a real reply
+            return;
         }
 
-        // Throttle from the last thing we said on this ticket, whatever it was.
         var lastOutbound = Max(ticket.LastReminderSentAt, ticket.ChallengeSentAt,
             ticket.LocationRequestSentAt, ticket.AckSentAt, ticket.LocationResolvedAt)
             ?? ticket.CreatedAt;
         var throttle = message.Kind == InboundKind.Text
-            ? TimeSpan.FromSeconds(30)   // a typed question deserves a fast answer
-            : TimeSpan.FromSeconds(120); // duplicate media can wait
+            ? TimeSpan.FromSeconds(30)
+            : TimeSpan.FromSeconds(120);
 
         if (now - lastOutbound < throttle)
         {
@@ -389,8 +537,8 @@ public static class IngestInboundMessageHandler
         {
             { AckSentAt: not null } => OutboundKind.StatusUnderReview,
             { LocationResolvedAt: null, Evidence: >= EvidenceLevel.VoiceOnly } => OutboundKind.LocationPinRequest,
-            { LocationResolvedAt: not null } => OutboundKind.PinReceivedAck, // photo still pending
-            _ => OutboundKind.ElicitationChallenge, // nothing yet — repeat the full ask
+            { LocationResolvedAt: not null } => OutboundKind.PinReceivedAck,
+            _ => OutboundKind.ElicitationChallenge,
         };
 
         ticket.LastReminderSentAt = now;
@@ -432,14 +580,10 @@ public static class IngestInboundMessageHandler
 
         if (PerceptualHash.IsDegenerate(hash))
         {
-            // Low-texture image: hash carries no identity — comparing or storing it
-            // would false-flag unrelated dark/blurry photos as reused (found live:
-            // gradient test images and 1x1 PNGs all collided at distance 0).
             logger.LogInformation("Degenerate pHash for {MediaRef} — skipping reuse detection", mediaRef);
             return null;
         }
 
-        // Pilot scale: linear scan over the corpus is fine (hundreds of rows).
         var knownHashes = await db.MediaAssets.Select(a => a.PerceptualHash).ToListAsync(ct);
         var reused = knownHashes.Any(known =>
             PerceptualHash.HammingDistance(unchecked((ulong)known), hash) <= options.PerceptualHashThreshold);
@@ -456,9 +600,26 @@ public static class IngestInboundMessageHandler
         return new ImageAnalysis(mediaRef, asset, reused);
     }
 
+    private static async Task<string?> Transcribe(
+        string mediaRef, IMediaStore mediaStore, ITranscriber transcriber, ILogger logger, CancellationToken ct)
+    {
+        await using var audio = await mediaStore.OpenReadAsync(mediaRef, ct);
+        if (audio is null) return null;
+        try
+        {
+            return await transcriber.TranscribeAsync(audio, mediaStore.GetContentType(mediaRef), ct);
+        }
+        catch (Exception ex)
+        {
+            // STT is enrichment, not a gate — the voice note still triages (low confidence).
+            logger.LogWarning(ex, "Transcription failed for {MediaRef}", mediaRef);
+            return null;
+        }
+    }
+
     private static void AppendEntry(
         First10DbContext db, Guid? ticketId, Conversation conversation,
-        InboundChannelMessage message, string? mediaRef)
+        InboundChannelMessage message, string? mediaRef, string? transcript)
     {
         db.TimelineEntries.Add(new TimelineEntry
         {
@@ -473,13 +634,11 @@ public static class IngestInboundMessageHandler
                 InboundKind.LocationPin => TimelineEntryKind.LocationPin,
                 _ => TimelineEntryKind.Text,
             },
-            // Truncate defensively: the column caps at 8192 chars, and an oversized
-            // insert dead-letters the whole message — a silently lost crash report
-            // (found via edge-case sweep: 10k-char text vanished with a 202).
             Text = message.Kind == InboundKind.LocationPin && message.Location is { } pin
                 ? $"{pin.Latitude:F5}, {pin.Longitude:F5}"
                 : message.Text is { Length: > 8192 } longText ? longText[..8192] : message.Text,
             MediaRef = mediaRef ?? message.MediaRef,
+            TranscriptText = transcript is { Length: > 8192 } longTranscript ? longTranscript[..8192] : transcript,
             Channel = message.Channel,
             ExternalMessageId = message.ExternalMessageId,
             OccurredAt = message.OccurredAt,
@@ -503,14 +662,17 @@ public static class IngestInboundMessageHandler
     private static bool SetEquals(HashSet<string> flags, string? stored) =>
         flags.SetEquals(stored?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []);
 
-    private static string Summarize(InboundChannelMessage message) =>
-        message.Kind switch
+    private static string Summarize(InboundChannelMessage message, string? transcript)
+    {
+        var text = message.Kind == InboundKind.Voice ? transcript : message.Text;
+        return message.Kind switch
         {
-            InboundKind.Text when !string.IsNullOrWhiteSpace(message.Text) =>
-                message.Text.Length <= 140 ? message.Text : message.Text[..140],
-            InboundKind.Image => "[photo received]",
+            InboundKind.Voice when text is not null => text.Length <= 140 ? $"🎙 {text}" : $"🎙 {text[..140]}",
             InboundKind.Voice => "[voice note received]",
+            InboundKind.Text when !string.IsNullOrWhiteSpace(text) => text!.Length <= 140 ? text : text[..140],
+            InboundKind.Image => "[photo received]",
             InboundKind.LocationPin => "[location pin received]",
             _ => "[message received]",
         };
+    }
 }

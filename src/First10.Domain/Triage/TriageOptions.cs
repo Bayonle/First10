@@ -37,6 +37,27 @@ public class TriageOptions
     /// </summary>
     public int SessionMaxAgeMinutes { get; set; } = 60;
 
+    // ---- M2: saga timers + corroboration ----
+
+    /// <summary>Pin reminder fires this long after a pin was requested with no reply (paper R5c).</summary>
+    public int PinReminderSeconds { get; set; } = 30;
+
+    /// <summary>Unanswered challenge (no evidence, no location) expires the ticket after this.</summary>
+    public int ChallengeExpiryMinutes { get; set; } = 10;
+
+    /// <summary>Corroboration radius: two reporters within this distance… (paper §1.4)</summary>
+    public int DedupRadiusMeters { get; set; } = 200;
+
+    /// <summary>…and this window auto-verify a shared incident (paper §1.4).</summary>
+    public int DedupWindowMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Dev-only escape hatch: allow sending micro-instruction templates that lack
+    /// clinical approval. MUST be false in any pilot configuration — the clinical
+    /// gate (paper §1.4, G3) is enforced structurally through this flag.
+    /// </summary>
+    public bool AllowUnapprovedTemplates { get; set; } = false;
+
     public double CorridorBufferKm { get; set; } = 2.0;
 
     /// <summary>

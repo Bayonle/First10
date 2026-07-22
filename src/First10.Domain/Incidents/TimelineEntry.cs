@@ -34,6 +34,10 @@ public class TimelineEntry
     public string? Text { get; set; }
     public string? MediaRef { get; set; }
 
+    /// <summary>STT transcript for voice entries (M2). Console renders it BESIDE the
+    /// playable audio (D-013) — the audio is ground truth, the transcript is the skim aid.</summary>
+    public string? TranscriptText { get; set; }
+
     /// <summary>Dedup key half: unique with <see cref="Channel"/> when set (all channels redeliver).</summary>
     public ChannelKind? Channel { get; set; }
     public string? ExternalMessageId { get; set; }

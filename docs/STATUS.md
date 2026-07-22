@@ -3,20 +3,20 @@
 > Update at the end of every working session. This file is the handoff between sessions — assume the reader (human or AI) has zero short-term memory and 2 minutes.
 
 **Last updated:** 2026-07-22
-**Current milestone:** [M1 — Intake & Triage](milestones/M1-intake-triage.md) ✅ **COMPLETE** → next is [M2 — Session & Extraction](milestones/M2-session-extraction.md)
-**Overall:** the triage funnel is live end-to-end. A pidgin text report gets classified, opens a Challenge-disposition ticket, and the reporter receives an elicitation reply; photos fast-track evidence-first; floods trip the console banner and cap dispositions; greetings get canned replies with no ticket. Media flows through MinIO. 42 tests green.
+**Current milestone:** [M2 — Session & Extraction](milestones/M2-session-extraction.md) **~85% built, core verified live** → remainder + [M3 console](milestones/M3-dispatch-console.md) next
+**Overall:** the full reporter experience runs end-to-end: saga-driven durable timers (unprompted 30s pin reminder verified live), 200m/5min corroboration merging two reporters into one AUTO_VERIFY/Promoted incident, async extraction (severity/template selection) with micro-instructions delivered seconds after the first message, STT + extraction + classification all behind swap-ready interfaces. 76 tests green.
 
 ## Next task
 
-Start M2: the `ReportingSession` saga (states, promotion rule, pin-reminder/challenge-expiry timeouts via `TimeProvider`), then dedup/merge (200m/5min → shared incidents, which unlocks `AUTO_VERIFY`), then AI extraction + STT + micro-instruction template store.
+Finish M2 remainder (timeline summarizer; template audio; chat-impl activation when the key lands) **or** start M3 dispatcher actions (dispatched/arrived/transported + outcome marking) — M3 recommended: it unblocks the loop-closure story and the late-reporter path.
 
 ## In flight
 
-_(clean break — M1 closed, M2 not started)_
+- M2 remainder items listed in the milestone doc (~15%: summarizer, audio recordings, chat-impl accuracy pass).
 
 ## Blockers
 
-- **OpenAI API key still needed** — now blocks *two* things: activating `ChatIntentClassifier` (built, tested only via heuristic twin) and M2's extraction + STT (Whisper). Decide account ownership + spending cap (§3.3 control 3). Set `OpenAI:ApiKey` via user-secrets; the DI switch is automatic.
+- **OpenAI API key still needed** — blocks activation of `ChatIntentClassifier`, `ChatIncidentExtractor`, and `WhisperTranscriber` (all built and wired; DI switches automatically on `OpenAI:ApiKey`). Decide account ownership + spending cap (§3.3 control 3).
 
 ## External dependency status
 
@@ -44,6 +44,7 @@ _(clean break — M1 closed, M2 not started)_
 
 _(newest first — one line per session: date, what moved)_
 
+- **2026-07-22 (10)** — M2 core built and verified live: `ReportingSessionSaga` with durable Wolverine timers (pin reminder fired unprompted 30s after a silent text-only report — the R5c flow, proactive at last), 200m/5min corroboration (reporter B's pin merged their ticket into A's → AUTO_VERIFY + Promoted + 2-reporter relay timeline with per-reporter identity; independence enforced via timeline history so reporters can't corroborate themselves), async extraction cascade (heuristic now, `ChatIncidentExtractor` ready; fire report → severity High → pidgin `rta_fire` micro-instruction seconds after first message), STT interface (Whisper ready, transcript-beside-audio in console), clinically-gated template store (unapproved templates only send under the dev flag — G3 structurally enforced). Migration #5; 76 tests.
 - **2026-07-22 (9)** — Live proof session for the anti-spam claims: (1) pHash — WhatsApp-style forward (½ res, q50, 12× smaller file) flagged `reused-image`, different scene passes clean; (2) reputation — blocked reporter leaves zero footprint, low-trust photo capped at Review; (3) rate limit — 31 opens from one number → 30 tickets + silent 31st drop while another number works normally. Proving pHash exposed a real bug: low-texture images (gradients, uniform, dark/blurry) produce degenerate dHashes that collide — a night-time crash photo could have been false-flagged as reused. Fixed: degenerate hashes (≤4 or ≥60 bits) are excluded from reuse detection and the corpus; unit tests rebuilt on textured block-noise scenes. 65 tests.
 - **2026-07-22 (8)** — Agent-driven edge-case sweep (agent-browser + API probes, 12 scenarios): verified clean — emoji/pidgin triage, double-submit dedup, question→incident sequencing, ghost-media grace, cross-persona pHash reuse detection, flood banner + badges visually. Found & fixed 3 bugs: pin-first reports were asked for the pin again (now get "location received, send photo"); >8192-char texts dead-lettered = silently lost reports (now truncated defensively); undefined message kinds accepted (now 400). README gains the full Aspire reset procedure (dcp survives naive pkill — the earlier volume wipe hadn't stuck). 60 tests.
 - **2026-07-22 (7)** — Pending-ask reminders ("never silent, never nagging"): messages that earn no other reply (mid-flow questions, duplicate photos) now restate whatever the session awaits — pin / photo / full ask — or report status when complete (`StatusUnderReview`, review-only wording per R1e). Throttled: 30s for texts, 120s for media, tracked per ticket. 57 tests; screenshot flow replayed green.

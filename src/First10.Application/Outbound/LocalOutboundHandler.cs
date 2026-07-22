@@ -35,14 +35,35 @@ public static class LocalOutboundHandler
             return null;
         }
 
+        string text;
+        string? audioRef = null;
+        if (command.Kind == OutboundKind.MicroInstruction)
+        {
+            // Clinical content is resolved from the approved store, never composed (D-011).
+            var template = await db.MicroInstructionTemplates
+                .SingleOrDefaultAsync(t => t.Id == command.TemplateId, ct);
+            if (template is null)
+            {
+                logger.LogError("MicroInstruction outbound without resolvable template {TemplateId}", command.TemplateId);
+                return null;
+            }
+            text = template.Text;
+            audioRef = template.AudioMediaRef;
+        }
+        else
+        {
+            text = OutboundTexts.For(command.Kind, command.Language);
+        }
+
         db.TimelineEntries.Add(new TimelineEntry
         {
             Id = Guid.NewGuid(),
             TicketId = command.TicketId,
             ConversationId = conversation.Id,
             Direction = TimelineDirection.Outbound,
-            Kind = TimelineEntryKind.Text,
-            Text = OutboundTexts.For(command.Kind, command.Language),
+            Kind = audioRef is not null ? TimelineEntryKind.Voice : TimelineEntryKind.Text,
+            Text = text,
+            MediaRef = audioRef,
             OccurredAt = DateTimeOffset.UtcNow,
         });
 

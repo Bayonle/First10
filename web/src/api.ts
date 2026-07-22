@@ -36,11 +36,28 @@ export const evidenceLabel: Record<EvidenceLevel, string> = {
   4: 'photo+',
 };
 
+export type SeverityTier = 0 | 1 | 2; // Low | Medium | High
+
+export const severityLabel: Record<SeverityTier, string> = {
+  0: 'low',
+  1: 'medium',
+  2: 'HIGH',
+};
+
+export const severityColor: Record<SeverityTier, string> = {
+  0: '#690',
+  1: '#c80',
+  2: '#c00',
+};
+
 export interface TicketListItem {
   id: string;
   status: TicketStatus;
   disposition: Disposition;
   evidence: EvidenceLevel;
+  severity: SeverityTier | null;
+  casualtyEstimate: string | null;
+  reporterCount: number;
   language: string | null;
   flags: string | null;
   summary: string;
@@ -56,6 +73,7 @@ export interface TimelineEntryDto {
   kind: 0 | 1 | 2 | 3 | 4; // Text | Image | Voice | LocationPin | StatusChange
   text: string | null;
   mediaRef: string | null;
+  transcriptText: string | null;
   occurredAt: string;
 }
 

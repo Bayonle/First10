@@ -6,10 +6,13 @@ public enum TicketStatus
 {
     /// <summary>Created at session start (D-007); enriched as evidence arrives.</summary>
     Provisional = 0,
+    /// <summary>Promotion rule met: (photo OR corroboration) AND location resolved.</summary>
     Promoted = 1,
     ExpiredUnverified = 2,
     Rejected = 3,
     Closed = 4,
+    /// <summary>Folded into another incident by corroboration dedup — empty shell, hidden from queue.</summary>
+    Merged = 5,
 }
 
 /// <summary>
@@ -49,6 +52,35 @@ public class IncidentTicket
     /// never nagging" middle ground.</summary>
     public DateTimeOffset? LastReminderSentAt { get; set; }
 
+    // ---- M2: extraction + micro-instructions + corroboration ----
+
+    /// <summary>AI-extracted severity tier; errs high when uncertain (R3).</summary>
+    public SeverityTier? Severity { get; set; }
+
+    /// <summary>Free-text casualty estimate from extraction ("2-3 visible, 1 trapped").</summary>
+    public string? CasualtyEstimate { get; set; }
+
+    /// <summary>Which extractor produced the fields above ("heuristic-v1" / "chat-v1").</summary>
+    public string? ExtractorVersion { get; set; }
+
+    /// <summary>When the safety micro-instruction went out — the ≤30s latency metric
+    /// (paper objective 4) is InstructionSentAt - CreatedAt.</summary>
+    public DateTimeOffset? InstructionSentAt { get; set; }
+
+    /// <summary>Distinct reporters attached to this incident. 2+ ⇒ corroborated (AUTO_VERIFY).</summary>
+    public int ReporterCount { get; set; } = 1;
+
+    /// <summary>Resolved incident location (from pin; M2+: voice cue). Drives 200m dedup.</summary>
+    public double? LocationLat { get; set; }
+    public double? LocationLng { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public enum SeverityTier
+{
+    Low = 0,
+    Medium = 1,
+    High = 2,
 }

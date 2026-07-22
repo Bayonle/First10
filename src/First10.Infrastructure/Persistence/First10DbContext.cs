@@ -11,6 +11,7 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
     public DbSet<TimelineEntry> TimelineEntries => Set<TimelineEntry>();
     public DbSet<ReporterReputation> ReporterReputations => Set<ReporterReputation>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MicroInstructionTemplate> MicroInstructionTemplates => Set<MicroInstructionTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -51,6 +52,18 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
             e.HasKey(x => x.Id);
             e.Property(x => x.MediaRef).HasMaxLength(512);
             e.HasIndex(x => x.CreatedAt);
+        });
+
+        modelBuilder.Entity<MicroInstructionTemplate>(e =>
+        {
+            e.ToTable("micro_instruction_templates");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Key).HasMaxLength(64);
+            e.Property(x => x.Language).HasMaxLength(32);
+            e.Property(x => x.Text).HasMaxLength(2048);
+            e.Property(x => x.AudioMediaRef).HasMaxLength(512);
+            e.Property(x => x.ApprovedBy).HasMaxLength(256);
+            e.HasIndex(x => new { x.Key, x.Language, x.Version }).IsUnique();
         });
 
         modelBuilder.Entity<TimelineEntry>(e =>

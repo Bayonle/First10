@@ -66,19 +66,24 @@ else
 }
 builder.Services.AddSingleton<IPerceptualHasher, DHashPerceptualHasher>();
 
-// Stage 1 classifier: LLM behind IChatClient when a key is configured (D-003),
-// heuristic fallback otherwise so the funnel runs offline (dev/CI/tests).
+// AI services: LLM-backed behind IChatClient when a key is configured (D-003),
+// heuristic/null fallbacks otherwise so the pipeline runs offline (dev/CI/tests).
 var openAiKey = builder.Configuration["OpenAI:ApiKey"];
 if (!string.IsNullOrWhiteSpace(openAiKey))
 {
+    var openAi = new OpenAIClient(openAiKey);
     var model = builder.Configuration["OpenAI:Model"] ?? "gpt-4o-mini";
-    builder.Services.AddSingleton<IChatClient>(
-        new OpenAIClient(openAiKey).GetChatClient(model).AsIChatClient());
+    builder.Services.AddSingleton<IChatClient>(openAi.GetChatClient(model).AsIChatClient());
     builder.Services.AddSingleton<IIntentClassifier, ChatIntentClassifier>();
+    builder.Services.AddSingleton<IIncidentExtractor, ChatIncidentExtractor>();
+    builder.Services.AddSingleton<ITranscriber>(new WhisperTranscriber(
+        openAi.GetAudioClient(builder.Configuration["OpenAI:SttModel"] ?? "whisper-1")));
 }
 else
 {
     builder.Services.AddSingleton<IIntentClassifier, HeuristicIntentClassifier>();
+    builder.Services.AddSingleton<IIncidentExtractor, HeuristicIncidentExtractor>();
+    builder.Services.AddSingleton<ITranscriber, NullTranscriber>();
 }
 
 const string SpaCors = "spa";
@@ -97,6 +102,11 @@ if (!app.Environment.IsEnvironment("Testing"))
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<First10DbContext>();
     await db.Database.MigrateAsync();
+
+    // Seed placeholder micro-instruction templates (UNAPPROVED — the clinical advisor's
+    // signed-off set replaces these; unapproved templates only send when the dev-only
+    // Triage:AllowUnapprovedTemplates flag is set).
+    await TemplateSeeder.SeedPlaceholdersAsync(db);
 }
 
 app.UseCors(SpaCors);

@@ -39,7 +39,7 @@ public class SessionMaxAgeTests
         await IngestInboundMessageHandler.Handle(
             new InboundChannelMessage(ChannelKind.Local, "r1", Guid.NewGuid().ToString("N"),
                 InboundKind.Text, text, null, null, DateTimeOffset.UtcNow),
-            db, new HeuristicIntentClassifier(), new NullMediaStore(), new NullHasher(),
+            db, new HeuristicIntentClassifier(), new TestNullTranscriber(), new NullMediaStore(), new NullHasher(),
             new TriageOptions(), NullLogger.Instance, CancellationToken.None);
         await db.SaveChangesAsync();
     }

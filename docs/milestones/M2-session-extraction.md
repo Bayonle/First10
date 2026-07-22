@@ -3,6 +3,8 @@
 **Target:** 30 Jul – 3 Aug 2026 · **Paper mapping:** W7 · **Depends on:** M1 · **External:** clinical template library v1 (placeholder templates acceptable until sign-off)
 **Goal:** the full reporter experience — session saga with timeouts, AI extraction enriching the provisional ticket, micro-instructions and pin requests going out, dedup merging multi-reporter incidents.
 
+**Status (22 Jul): ~85% BUILT, core verified live.** Done: saga + durable timers (unprompted 30s pin reminder verified), 200m/5min corroboration → AUTO_VERIFY + Promoted (verified live), extraction + STT + micro-instructions behind interfaces with the clinical gate enforced. Remaining: timeline summarizer, chat-impl activation + accuracy pass (blocked on OpenAI key), template audio recordings, late-reporter "already handled" path (needs M3 dispatcher closure states). 76 tests.
+
 ## Exit criteria
 
 - [ ] Two-personas-same-crash scenario: second report auto-verifies the incident, both sessions merge into one relay timeline, each reporter receives their own instructions.

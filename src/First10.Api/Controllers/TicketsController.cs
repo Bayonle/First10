@@ -10,6 +10,9 @@ public sealed record TicketListItem(
     TicketStatus Status,
     First10.Domain.Triage.Disposition Disposition,
     First10.Domain.Triage.EvidenceLevel Evidence,
+    SeverityTier? Severity,
+    string? CasualtyEstimate,
+    int ReporterCount,
     string? Language,
     string? Flags,
     string Summary,
@@ -24,6 +27,7 @@ public sealed record TimelineEntryDto(
     TimelineEntryKind Kind,
     string? Text,
     string? MediaRef,
+    string? TranscriptText,
     DateTimeOffset OccurredAt);
 
 /// <summary>
@@ -37,10 +41,12 @@ public class TicketsController(First10DbContext db) : ControllerBase
     [HttpGet]
     public async Task<IReadOnlyList<TicketListItem>> List(CancellationToken ct) =>
         await db.Tickets
+            .Where(t => t.Status != TicketStatus.Merged) // merged shells live on inside their survivor
             .OrderByDescending(t => t.UpdatedAt)
             .Take(100)
             .Select(t => new TicketListItem(
-                t.Id, t.Status, t.Disposition, t.Evidence, t.Language, t.Flags,
+                t.Id, t.Status, t.Disposition, t.Evidence, t.Severity, t.CasualtyEstimate,
+                t.ReporterCount, t.Language, t.Flags,
                 t.Summary, t.LocationResolvedAt, t.CreatedAt, t.UpdatedAt))
             .ToListAsync(ct);
 
@@ -57,7 +63,8 @@ public class TicketsController(First10DbContext db) : ControllerBase
             .Where(e => e.TicketId == id)
             .OrderBy(e => e.OccurredAt)
             .Select(e => new TimelineEntryDto(
-                e.Id, e.ConversationId, e.Direction, e.Kind, e.Text, e.MediaRef, e.OccurredAt))
+                e.Id, e.ConversationId, e.Direction, e.Kind, e.Text, e.MediaRef,
+                e.TranscriptText, e.OccurredAt))
             .ToListAsync(ct);
     }
 }

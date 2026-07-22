@@ -8,6 +8,8 @@ import {
   fetchTickets,
   fetchTimeline,
   mediaUrl,
+  severityColor,
+  severityLabel,
   ticketStatusLabel,
   type TimelineEntryDto,
 } from '../api';
@@ -74,7 +76,11 @@ export default function ConsolePage() {
                     <Badge color={dispositionColor[t.disposition]}>
                       {dispositionLabel[t.disposition]}
                     </Badge>
+                    {t.severity !== null && (
+                      <Badge color={severityColor[t.severity]}>⚠ {severityLabel[t.severity]}</Badge>
+                    )}
                     <Badge color="#555">{evidenceLabel[t.evidence]}</Badge>
+                    {t.reporterCount > 1 && <Badge color="#608">👥 {t.reporterCount} reporters</Badge>}
                     {t.locationResolvedAt && <Badge color="#286">📍 located</Badge>}
                     {t.language && <Badge color="#777">{t.language}</Badge>}
                     {t.flags?.split(',').map((f) => (
@@ -84,6 +90,11 @@ export default function ConsolePage() {
                     ))}
                   </div>
                   <div>{t.summary}</div>
+                  {t.casualtyEstimate && (
+                    <div style={{ color: '#900', fontSize: '0.85rem' }}>
+                      casualties: {t.casualtyEstimate}
+                    </div>
+                  )}
                   <small>
                     {ticketStatusLabel[t.status]} · {new Date(t.updatedAt).toLocaleTimeString()}
                   </small>
@@ -157,11 +168,16 @@ function EntryBody({ entry }: { entry: TimelineEntryDto }) {
       ) : (
         <em>[photo]</em>
       );
-    case 2: // Voice — playable beside transcript (transcript lands in M2)
-      return entry.mediaRef ? (
-        <audio controls src={mediaUrl(entry.mediaRef)} style={{ marginTop: 4 }} />
-      ) : (
-        <em>[voice note]</em>
+    case 2: // Voice — playable audio BESIDE transcript (D-013: audio is ground truth)
+      return (
+        <div style={{ marginTop: 4 }}>
+          {entry.mediaRef ? <audio controls src={mediaUrl(entry.mediaRef)} /> : <em>[voice note]</em>}
+          <div style={{ fontStyle: 'italic', color: '#555', fontSize: '0.9rem' }}>
+            {entry.transcriptText
+              ? `“${entry.transcriptText}”`
+              : 'transcript unavailable — listen to audio'}
+          </div>
+        </div>
       );
     case 3:
       return (

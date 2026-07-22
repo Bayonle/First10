@@ -39,7 +39,7 @@ public class EdgeCaseSweepTests
         var result = await IngestInboundMessageHandler.Handle(
             new InboundChannelMessage(ChannelKind.Local, "r1", Guid.NewGuid().ToString("N"),
                 kind, text, mediaRef, location, DateTimeOffset.UtcNow),
-            db, new HeuristicIntentClassifier(), new NullMediaStore(), new NullHasher(),
+            db, new HeuristicIntentClassifier(), new TestNullTranscriber(), new NullMediaStore(), new NullHasher(),
             new TriageOptions(), NullLogger.Instance, CancellationToken.None);
         await db.SaveChangesAsync();
         return result;

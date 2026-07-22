@@ -17,6 +17,9 @@ public enum OutboundKind
     /// <summary>Reply to "what's happening?" on a complete report. Review-status only —
     /// dispatch updates come exclusively from dispatcher actions (R1e).</summary>
     StatusUnderReview = 5,
+    /// <summary>Clinically pre-approved safety template (paper §1.4). Text resolved from
+    /// the template store by TemplateId — never from static strings, never generated.</summary>
+    MicroInstruction = 6,
 }
 
 /// <summary>
@@ -28,7 +31,8 @@ public sealed record SendOutboundMessage(
     Guid ConversationId,
     Guid? TicketId,
     OutboundKind Kind,
-    string Language);
+    string Language,
+    Guid? TemplateId = null);
 
 public static class OutboundTexts
 {
