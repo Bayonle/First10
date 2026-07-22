@@ -126,6 +126,14 @@ public class ReportingSessionSaga : Saga
 
     public void Handle(SessionEnded _) => MarkCompleted();
 
+    // Stale timers are NORMAL: a session can complete (merge, expiry, dispatcher close)
+    // while its remaining scheduled timers are still queued. Wolverine's NotFound
+    // convention turns "saga already gone" into a silent no-op instead of a dead letter.
+    public static void NotFound(PinReminderDue _) { }
+    public static void NotFound(ChallengeExpiryDue _) { }
+    public static void NotFound(SessionAgeCapDue _) { }
+    public static void NotFound(SessionEnded _) { }
+
     private static async Task Expire(
         First10DbContext db, IncidentTicket ticket, string reason, OutgoingMessages outgoing, CancellationToken ct)
     {

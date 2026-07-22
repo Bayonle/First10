@@ -137,9 +137,11 @@ public static class IngestInboundMessageHandler
             _ => await intentClassifier.ClassifyAsync(message.Text ?? string.Empty, ct),
         };
 
-        // A voice note is evidence of presence even if its words classify as chatter —
-        // bias toward incident stands (D-008).
-        if (message.Kind == InboundKind.Voice && intent.Intent is MessageIntent.Question or MessageIntent.GreetingOrTest)
+        // A voice note is physical presence — whatever the transcript classifies as.
+        // STT can mangle vernacular into nonsense (a Yoruba report transcribed as
+        // gibberish English would classify as spam); the dispatcher's ear decides,
+        // never the classifier. Voice ALWAYS triages as an incident, low confidence.
+        if (message.Kind == InboundKind.Voice && intent.Intent != MessageIntent.NewIncident)
         {
             intent = intent with { Intent = MessageIntent.NewIncident, Confidence = IntentConfidence.Low };
         }

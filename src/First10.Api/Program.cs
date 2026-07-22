@@ -10,6 +10,7 @@ using Microsoft.Extensions.AI;
 using OpenAI;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
+using Wolverine.ErrorHandling;
 using Wolverine.Postgresql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,14 @@ builder.Host.UseWolverine(opts =>
     opts.UseEntityFrameworkCoreTransactions();
     opts.Policies.AutoApplyTransactions();
     opts.Policies.UseDurableLocalQueues();
+
+    // Transient DB failures (unique-index races on concurrent conversation creation,
+    // connection blips, crash-replay artifacts) get retries before dead-lettering —
+    // a dead-lettered inbound is a silently ignored crash report.
+    opts.OnException<Microsoft.EntityFrameworkCore.DbUpdateException>()
+        .RetryWithCooldown(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2));
+    opts.OnException<Npgsql.NpgsqlException>()
+        .RetryWithCooldown(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2));
 
     // Handlers live in First10.Application, not this assembly.
     opts.Discovery.IncludeAssembly(typeof(IngestInboundMessageHandler).Assembly);

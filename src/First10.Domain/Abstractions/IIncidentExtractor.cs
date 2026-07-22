@@ -21,7 +21,10 @@ public sealed record ExtractionResult(
     string? CasualtyEstimate,
     string TemplateKey,
     string DispatcherSummary,
-    string ExtractorVersion);
+    string ExtractorVersion,
+    /// <summary>False when the photo clearly does not show what the narrative claims —
+    /// caps disposition at Review + flags, never drops (D-008).</summary>
+    bool PhotoMatchesNarrative = true);
 
 public interface IIncidentExtractor
 {

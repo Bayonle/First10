@@ -78,6 +78,31 @@ public static class RunExtractionHandler
             : result.DispatcherSummary[..2048];
         ticket.UpdatedAt = DateTimeOffset.UtcNow;
 
+        // Cross-modal consistency (D-008): a photo that contradicts the narrative caps
+        // an uncorroborated ticket at Review — flagged, visible, never dropped.
+        if (!result.PhotoMatchesNarrative)
+        {
+            var flags = (ticket.Flags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []).ToHashSet();
+            if (flags.Add("photo-mismatch"))
+            {
+                ticket.Flags = string.Join(',', flags.OrderBy(f => f));
+                if (ticket.Disposition > First10.Domain.Triage.Disposition.Review && ticket.ReporterCount == 1)
+                {
+                    db.TimelineEntries.Add(new TimelineEntry
+                    {
+                        Id = Guid.NewGuid(),
+                        TicketId = ticket.Id,
+                        ConversationId = command.ConversationId,
+                        Direction = TimelineDirection.System,
+                        Kind = TimelineEntryKind.StatusChange,
+                        Text = $"Photo does not match narrative — {ticket.Disposition}→Review",
+                        OccurredAt = DateTimeOffset.UtcNow,
+                    });
+                    ticket.Disposition = First10.Domain.Triage.Disposition.Review;
+                }
+            }
+        }
+
         // ---- Micro-instruction: once per ticket, clinical gate enforced (paper §1.4) ----
         if (ticket.InstructionSentAt is null && ticket.Disposition > Disposition.Drop)
         {

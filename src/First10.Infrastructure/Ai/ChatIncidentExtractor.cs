@@ -19,6 +19,11 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
         stretch of the Lagos-Ibadan Expressway. Input: an optional scene photo (faces
         pre-blurred) and the reporter's narrative (English, Nigerian Pidgin, or Yoruba).
 
+        Corridor landmarks (normalize spellings/mis-transcriptions to these):
+        Berger interchange, Kara bridge (often heard as "Carra"/"Cara"), OPIC estate,
+        Ibafo, Mowe, the toll gate. In Pidgin, "motor" means car/vehicle, NOT motorbike;
+        a motorcycle is "okada" or "bike".
+
         Fields:
         - severity: "low" | "medium" | "high". RULE: when uncertain between two tiers,
           choose the HIGHER. Fatalities, trapped victims, fire, tankers, or a person
@@ -63,7 +68,8 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
             string.IsNullOrWhiteSpace(wire.DispatcherSummary)
                 ? (input.Narrative ?? "RTA report — see timeline")
                 : wire.DispatcherSummary,
-            Version);
+            Version,
+            PhotoMatchesNarrative: wire.PhotoMatchesNarrative ?? true);
     }
 
     private static SeverityTier MapSeverity(string? value) => value?.ToLowerInvariant() switch
