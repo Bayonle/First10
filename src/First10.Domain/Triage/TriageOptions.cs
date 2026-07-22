@@ -9,7 +9,7 @@ namespace First10.Domain.Triage;
 public class TriageOptions
 {
     /// <summary>Max new-incident (ticket-opening) attempts per conversation per window.</summary>
-    public int MaxNewIncidentsPerWindow { get; set; } = 3;
+    public int MaxNewIncidentsPerWindow { get; set; } = 30;
 
     public int RateLimitWindowMinutes { get; set; } = 60;
 
@@ -29,6 +29,13 @@ public class TriageOptions
     /// without a next message).
     /// </summary>
     public int SessionInactivityMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Hard cap on a reporter session's age. Without it, regular messages keep
+    /// resetting the inactivity clock and a ticket can swallow a conversation forever.
+    /// Dispatch targets minutes; an hour-old session is stale by definition.
+    /// </summary>
+    public int SessionMaxAgeMinutes { get; set; } = 60;
 
     public double CorridorBufferKm { get; set; } = 2.0;
 

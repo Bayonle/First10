@@ -84,7 +84,7 @@ public class SessionBoundaryTests
         Assert.Equal(TicketStatus.ExpiredUnverified, stale.Status); // visible, human makes the kill call
         Assert.Contains(db.TimelineEntries,
             e => e.TicketId == stale.Id && e.Direction == TimelineDirection.System
-                && e.Text!.Contains("challenge unanswered"));
+                && e.Text!.Contains("challenge was never answered"));
     }
 
     [Fact]

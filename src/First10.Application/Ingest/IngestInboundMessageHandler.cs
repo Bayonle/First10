@@ -85,16 +85,24 @@ public static class IngestInboundMessageHandler
             ? await db.Tickets.SingleOrDefaultAsync(t => t.Id == activeId && t.Status == TicketStatus.Provisional, ct)
             : null;
 
-        // Session boundary (lazy until M2's saga): silence longer than the inactivity
-        // window ends the previous reporter session. Without this, one conversation is
-        // one eternal ticket and every later message piles onto it.
-        if (activeTicket is not null
-            && previousInboundAt != default
-            && now - previousInboundAt > TimeSpan.FromMinutes(options.SessionInactivityMinutes))
+        // Session boundary (lazy until M2's saga): a session ends on EITHER
+        //   (a) inactivity — silence longer than the window, or
+        //   (b) age — the ticket is older than the max session age (regular messages
+        //       must not keep an ancient session alive by resetting the clock).
+        var inactivityExceeded = previousInboundAt != default
+            && now - previousInboundAt > TimeSpan.FromMinutes(options.SessionInactivityMinutes);
+        var maxAgeExceeded = activeTicket is not null
+            && now - activeTicket.CreatedAt > TimeSpan.FromMinutes(options.SessionMaxAgeMinutes);
+
+        if (activeTicket is not null && (inactivityExceeded || maxAgeExceeded))
         {
             var challengeUnanswered = activeTicket.ChallengeSentAt is not null
                 && activeTicket.Evidence <= EvidenceLevel.TextOnly
                 && activeTicket.LocationResolvedAt is null;
+
+            var reason = maxAgeExceeded
+                ? $"session older than {options.SessionMaxAgeMinutes} minutes"
+                : $"{options.SessionInactivityMinutes}+ minutes of silence";
 
             if (challengeUnanswered)
             {
@@ -102,14 +110,14 @@ public static class IngestInboundMessageHandler
                 // the dispatcher makes the kill call, never a timer (D-007).
                 activeTicket.Status = TicketStatus.ExpiredUnverified;
                 AppendSystemNote(db, activeTicket.Id, conversation.Id,
-                    $"Session expired: challenge unanswered after {options.SessionInactivityMinutes}+ minutes of silence");
+                    $"Session expired ({reason}): challenge was never answered");
             }
             else
             {
                 // Evidence and/or location exist — the incident stays pending for
                 // dispatch; only the reporter session closes.
                 AppendSystemNote(db, activeTicket.Id, conversation.Id,
-                    $"Reporter session closed after {options.SessionInactivityMinutes}+ minutes of silence — later messages open a new incident");
+                    $"Reporter session closed ({reason}) — later messages open a new incident");
             }
 
             activeTicket.UpdatedAt = now;

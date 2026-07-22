@@ -13,12 +13,13 @@
 
 ## Tasks
 
-> **Pulled forward (22 Jul):** a *lazy* session boundary already ships with M1 —
-> `TriageOptions.SessionInactivityMinutes` (default 15): a message after that much
-> silence closes the previous session at ingest time (unanswered challenges →
-> `ExpiredUnverified`, evidenced tickets stay pending) and opens a fresh incident.
-> The saga's scheduled timeouts *replace* the lazy check so tickets expire without
-> needing a next message to trigger the evaluation.
+> **Pulled forward (22 Jul):** a *lazy* session boundary already ships with M1, on two
+> conditions — `SessionInactivityMinutes` (default 15; silence gap) **and**
+> `SessionMaxAgeMinutes` (default 60; hard cap, because frequent messages otherwise
+> reset the inactivity clock forever — found live in cockpit testing). Unanswered
+> challenges → `ExpiredUnverified`, evidenced tickets stay pending; the next message
+> opens a fresh incident. The saga's scheduled timeouts *replace* the lazy check so
+> tickets expire without needing a next message to trigger the evaluation.
 
 ### ReportingSession saga (D-002, D-007)
 - [ ] Saga states: `OPEN → COLLECTING → PROMOTED | EXPIRED | REJECTED | MERGED`; per-reporter session vs shared incident aggregate
