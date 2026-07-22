@@ -22,6 +22,7 @@ public sealed record TicketListItem(
     string? TimelineDigest,
     string? Contradictions,
     string? CrewBriefing,
+    string? PendingAsk,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
@@ -44,18 +45,48 @@ public sealed record TimelineEntryDto(
 public class TicketsController(First10DbContext db) : ControllerBase
 {
     [HttpGet]
-    public async Task<IReadOnlyList<TicketListItem>> List(CancellationToken ct) =>
-        await db.Tickets
+    public async Task<IReadOnlyList<TicketListItem>> List(CancellationToken ct)
+    {
+        // Actionability order: what the dispatcher must ACT on outranks recency.
+        //   0 = needs a dispatch decision (open, undispatched) — strongest first
+        //   1 = in progress (dispatched/arrived)   2 = expired-unverified   3 = closed/rejected
+        var tickets = await db.Tickets
             .Where(t => t.Status != TicketStatus.Merged) // merged shells live on inside their survivor
-            .OrderByDescending(t => t.UpdatedAt)
+            .OrderBy(t =>
+                t.Status == TicketStatus.Closed || t.Status == TicketStatus.Rejected ? 3
+                : t.Status == TicketStatus.ExpiredUnverified ? 2
+                : t.Dispatch != DispatchState.None ? 1
+                : 0)
+            .ThenByDescending(t => t.Disposition)
+            .ThenByDescending(t => t.Severity)
+            .ThenBy(t => t.CreatedAt) // oldest waiting first — nobody rots at the bottom
             .Take(100)
-            .Select(t => new TicketListItem(
-                t.Id, t.Status, t.Disposition, t.Evidence, t.Severity, t.CasualtyEstimate,
-                t.ReporterCount, t.Language, t.Flags,
-                t.Summary, t.LocationResolvedAt,
-                t.Dispatch, t.Outcome, t.TimelineDigest, t.Contradictions, t.CrewBriefing,
-                t.CreatedAt, t.UpdatedAt))
             .ToListAsync(ct);
+
+        return tickets.Select(t => new TicketListItem(
+            t.Id, t.Status, t.Disposition, t.Evidence, t.Severity, t.CasualtyEstimate,
+            t.ReporterCount, t.Language, t.Flags,
+            t.Summary, t.LocationResolvedAt,
+            t.Dispatch, t.Outcome, t.TimelineDigest, t.Contradictions, t.CrewBriefing,
+            PendingAsk(t),
+            t.CreatedAt, t.UpdatedAt)).ToList();
+    }
+
+    /// <summary>What the session is still waiting on from the reporter — the console's
+    /// "pin requested, awaiting reply" live state.</summary>
+    private static string? PendingAsk(IncidentTicket t)
+    {
+        if (t.Status is not (TicketStatus.Provisional or TicketStatus.Promoted)) return null;
+        var needsScene = t.Evidence <= First10.Domain.Triage.EvidenceLevel.TextOnly;
+        var needsPin = t.LocationResolvedAt is null;
+        return (needsScene, needsPin) switch
+        {
+            (true, true) => "awaiting photo + location pin",
+            (false, true) => "awaiting location pin",
+            (true, false) => "awaiting scene photo",
+            _ => null,
+        };
+    }
 
     [HttpGet("{id:guid}/timeline")]
     public async Task<ActionResult<IReadOnlyList<TimelineEntryDto>>> Timeline(Guid id, CancellationToken ct)

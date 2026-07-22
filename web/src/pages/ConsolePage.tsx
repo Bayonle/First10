@@ -115,6 +115,9 @@ export default function ConsolePage() {
                       casualties: {t.casualtyEstimate}
                     </div>
                   )}
+                  {t.pendingAsk && (
+                    <div className="text-[0.78rem] text-warn-deep italic">⏳ {t.pendingAsk}</div>
+                  )}
                   <div className="font-mono text-[0.72rem] text-ink-faint">
                     {ticketStatusLabel[t.status]} · {t.language ?? '—'} ·{' '}
                     {new Date(t.updatedAt).toLocaleTimeString()}
@@ -148,6 +151,21 @@ export default function ConsolePage() {
 }
 
 const dispatchLabels = ['not dispatched', '🚑 dispatched', '📍 on scene', '🏥 transported'];
+
+/** Hand the crew a paper copy — radio rooms still print. */
+function printBriefing(ticket: TicketListItem) {
+  const w = window.open('', '_blank', 'width=640,height=800');
+  if (!w) return;
+  w.document.write(`<!doctype html><title>Crew briefing ${ticket.id.slice(0, 8)}</title>
+    <style>body{font-family:Georgia,serif;max-width:60ch;margin:2rem auto;line-height:1.5}
+    h1{font-size:1rem;text-transform:uppercase;letter-spacing:0.1em;border-bottom:2px solid #000;padding-bottom:4px}
+    pre{white-space:pre-wrap;font:inherit}</style>
+    <h1>First10 · Crew briefing · incident ${ticket.id.slice(0, 8)}</h1>
+    <pre>${ticket.crewBriefing?.replace(/</g, '&lt;') ?? ''}</pre>
+    <p><small>Generated ${new Date().toLocaleString()} — verify all details on arrival.</small></p>`);
+  w.document.close();
+  w.print();
+}
 
 function DetailPanel({ ticket }: { ticket: TicketListItem | undefined }) {
   const queryClient = useQueryClient();
@@ -236,6 +254,9 @@ function DetailPanel({ ticket }: { ticket: TicketListItem | undefined }) {
           <pre className="mt-2 border border-hairline bg-paper-sunken p-3 font-body text-[0.85rem] whitespace-pre-wrap">
             {ticket.crewBriefing}
           </pre>
+          <button className="ghost-btn mt-1" onClick={() => printBriefing(ticket)}>
+            🖨 print briefing
+          </button>
         </details>
       )}
     </div>

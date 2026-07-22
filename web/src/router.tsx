@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-router';
 import ConsolePage from './pages/ConsolePage';
 import LocalChatPage from './pages/LocalChatPage';
+import StatsPage from './pages/StatsPage';
 import { useTheme } from './useTheme';
 
 function Shell() {
@@ -27,6 +28,12 @@ function Shell() {
             className="border-b-2 border-transparent pb-0.5 text-[0.8rem] font-semibold uppercase tracking-[0.08em] text-ink-soft hover:border-ink hover:text-ink [&.active]:border-ink [&.active]:text-ink"
           >
             Console
+          </Link>
+          <Link
+            to="/stats"
+            className="border-b-2 border-transparent pb-0.5 text-[0.8rem] font-semibold uppercase tracking-[0.08em] text-ink-soft hover:border-ink hover:text-ink [&.active]:border-ink [&.active]:text-ink"
+          >
+            Stats
           </Link>
           {import.meta.env.DEV && (
             <Link
@@ -68,6 +75,12 @@ const consoleRoute = createRoute({
   component: ConsolePage,
 });
 
+const statsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/stats',
+  component: StatsPage,
+});
+
 // D-006: dev cockpit is gated client-side too; the API endpoint 404s outside Development.
 const localChatRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -79,7 +92,7 @@ const localChatRoute = createRoute({
 });
 
 export const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute, consoleRoute, localChatRoute]),
+  routeTree: rootRoute.addChildren([indexRoute, consoleRoute, statsRoute, localChatRoute]),
 });
 
 declare module '@tanstack/react-router' {

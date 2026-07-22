@@ -70,9 +70,26 @@ export interface TicketListItem {
   timelineDigest: string | null;
   contradictions: string | null;
   crewBriefing: string | null;
+  pendingAsk: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface StatsDto {
+  reportsTotal: number;
+  verifiedReports: number;
+  multiReporterIncidents: number;
+  openQueueDepth: number;
+  dispatchedCount: number;
+  medianTimeToDispatchMinutes: number | null;
+  medianInstructionLatencySeconds: number | null;
+  instructionCoverageRate: number;
+  loopClosureRate: number;
+  falsePositiveRate: number | null;
+  outcomesMarked: number;
+}
+
+export const fetchStats = () => fetch('/api/stats').then((r) => json<StatsDto>(r));
 
 export const postAction = (ticketId: string, action: 'dispatch' | 'arrive' | 'transport') =>
   fetch(`/api/tickets/${ticketId}/actions/${action}`, {
