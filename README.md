@@ -27,6 +27,19 @@ Send a message in one tab, see the incident in the other. That loop is the whole
 dotnet test
 ```
 
+## Reset local data
+
+Aspire's orchestrator (`dcp`) survives a naive `pkill First10` and resurrects containers —
+stop everything before removing volumes or the wipe silently doesn't stick:
+
+```sh
+pkill -f First10; pkill -f dcpctrl; pkill -f "aspire"; sleep 2
+docker ps --format '{{.Names}}' | grep -E '^(pg-|minio-)' | xargs -r docker rm -f
+docker volume rm first10-pg-data first10-minio-data
+```
+
+Next AppHost run starts with an empty database (migrations re-apply) and empty MinIO.
+
 ## Layout
 
 | Path | What |

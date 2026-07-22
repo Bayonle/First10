@@ -52,6 +52,11 @@ public class LocalChatController(IMessageBus bus) : ControllerBase
             return BadRequest("SenderId is required.");
         }
 
+        if (!Enum.IsDefined(request.Kind))
+        {
+            return BadRequest($"Unknown message kind {(int)request.Kind}.");
+        }
+
         if (request.Kind == LocalMessageKind.Text && string.IsNullOrWhiteSpace(request.Text))
         {
             return BadRequest("Text is required for text messages.");

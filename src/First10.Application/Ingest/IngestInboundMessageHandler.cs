@@ -228,7 +228,13 @@ public static class IngestInboundMessageHandler
         if (decision.SendChallenge)
         {
             ticket.ChallengeSentAt = now;
-            outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ElicitationChallenge, intent.Language));
+            // Pin-first reports already resolved location — don't ask for what they
+            // just sent; the "location received, please send a photo" text is the
+            // correct remaining ask (edge case found via browser sweep).
+            var challengeKind = ticket.LocationResolvedAt is not null
+                ? OutboundKind.PinReceivedAck
+                : OutboundKind.ElicitationChallenge;
+            outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, challengeKind, intent.Language));
         }
         else if (ticket.Evidence >= EvidenceLevel.VoiceOnly && ticket.LocationResolvedAt is null)
         {
@@ -458,9 +464,12 @@ public static class IngestInboundMessageHandler
                 InboundKind.LocationPin => TimelineEntryKind.LocationPin,
                 _ => TimelineEntryKind.Text,
             },
+            // Truncate defensively: the column caps at 8192 chars, and an oversized
+            // insert dead-letters the whole message — a silently lost crash report
+            // (found via edge-case sweep: 10k-char text vanished with a 202).
             Text = message.Kind == InboundKind.LocationPin && message.Location is { } pin
                 ? $"{pin.Latitude:F5}, {pin.Longitude:F5}"
-                : message.Text,
+                : message.Text is { Length: > 8192 } longText ? longText[..8192] : message.Text,
             MediaRef = mediaRef ?? message.MediaRef,
             Channel = message.Channel,
             ExternalMessageId = message.ExternalMessageId,
