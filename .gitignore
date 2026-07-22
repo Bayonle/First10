@@ -38,3 +38,4 @@ blob-data/
 # Logs
 logs/
 *.log
+nohup.out

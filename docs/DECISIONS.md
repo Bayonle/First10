@@ -193,6 +193,18 @@ Additional signals: corridor geofence (flag, don't drop), cross-modal consistenc
 
 ---
 
+## D-015 — .NET Aspire for local orchestration
+
+**Date:** 2026-07-22 · **Status:** Accepted · **Supersedes:** M0's docker-compose plan
+
+**Context.** M0 originally planned docker-compose for Postgres + API + SPA. Mid-build, the team chose .NET Aspire instead.
+
+**Decision.** `First10.AppHost` orchestrates local development: Postgres container (persistent data volume), the API project, and the Vite dev server (`AddNpmApp`), with service discovery injected into the Vite proxy config. One command boots everything: `dotnet run --project src/First10.AppHost`. The Aspire dashboard provides logs/traces across all resources.
+
+**Consequences.** No hand-maintained docker-compose for dev. Blob-storage emulation is added to the AppHost when the first consumer lands (M2 media pipeline), not before. Production deployment packaging is decided separately in M5 (Aspire can generate artifacts, or plain Dockerfiles — defer until hosting target is chosen). CI remains plain `dotnet build/test` + `npm run build` — no Aspire dependency in CI.
+
+---
+
 ## Template for new entries
 
 ```
