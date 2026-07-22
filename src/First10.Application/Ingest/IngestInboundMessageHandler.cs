@@ -430,6 +430,15 @@ public static class IngestInboundMessageHandler
             return null;
         }
 
+        if (PerceptualHash.IsDegenerate(hash))
+        {
+            // Low-texture image: hash carries no identity — comparing or storing it
+            // would false-flag unrelated dark/blurry photos as reused (found live:
+            // gradient test images and 1x1 PNGs all collided at distance 0).
+            logger.LogInformation("Degenerate pHash for {MediaRef} — skipping reuse detection", mediaRef);
+            return null;
+        }
+
         // Pilot scale: linear scan over the corpus is fine (hundreds of rows).
         var knownHashes = await db.MediaAssets.Select(a => a.PerceptualHash).ToListAsync(ct);
         var reused = knownHashes.Any(known =>

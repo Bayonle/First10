@@ -3,8 +3,8 @@ using First10.Domain.Channels;
 using First10.Domain.Triage;
 using First10.Infrastructure.Media;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 
 namespace First10.Tests;
 
@@ -12,53 +12,93 @@ public class PerceptualHashTests
 {
     private readonly DHashPerceptualHasher _hasher = new();
 
-    private static async Task<Stream> GradientImage(int width, int height, int quality, byte tint = 0)
+    /// <summary>
+    /// Deterministic textured "scene": an 8×8 grid of seeded random gray blocks in
+    /// relative coordinates, so the structure survives any resize — the way real
+    /// photo content does. (Smooth gradients are degenerate for dHash — see below.)
+    /// </summary>
+    private static async Task<Stream> TexturedScene(int seed, int width, int height, int quality)
     {
-        using var image = new Image<Rgb24>(width, height);
+        const int grid = 8;
+        var block = new byte[grid, grid];
+        var rng = seed;
+        for (var by = 0; by < grid; by++)
+        {
+            for (var bx = 0; bx < grid; bx++)
+            {
+                rng = unchecked(rng * 1103515245 + 12345);
+                block[bx, by] = (byte)((rng >> 16) & 0xFF);
+            }
+        }
+
+        using var img = new Image<Rgb24>(width, height);
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                // Structured, asymmetric content so the dHash is non-trivial.
-                var r = (byte)(255 * x / width);
-                var g = (byte)(255 * y / height);
-                var b = (byte)((x * y) % 251 > 125 ? 200 : 40);
-                image[x, y] = new Rgb24((byte)Math.Min(255, r + tint), g, b);
+                var v = block[x * grid / width, y * grid / height];
+                img[x, y] = new Rgb24(v, v, v);
             }
         }
+
         var ms = new MemoryStream();
-        await image.SaveAsJpegAsync(ms, new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = quality });
+        await img.SaveAsJpegAsync(ms, new JpegEncoder { Quality = quality });
         ms.Position = 0;
         return ms;
     }
 
     [Fact]
-    public async Task Reencoded_and_resized_image_hashes_near_identical()
+    public async Task Forwarded_copy_hashes_near_original_and_is_not_degenerate()
     {
-        // Simulates WhatsApp re-forwarding: recompressed + downscaled.
-        var original = await _hasher.HashAsync(await GradientImage(640, 480, quality: 90), default);
-        var forwarded = await _hasher.HashAsync(await GradientImage(320, 240, quality: 55), default);
+        // WhatsApp-forward simulation: half resolution, heavy recompression.
+        var original = await _hasher.HashAsync(await TexturedScene(42, 640, 480, 90), default);
+        var forwarded = await _hasher.HashAsync(await TexturedScene(42, 320, 240, 50), default);
 
-        Assert.True(PerceptualHash.HammingDistance(original, forwarded) <= 10,
-            $"distance was {PerceptualHash.HammingDistance(original, forwarded)}");
+        Assert.False(PerceptualHash.IsDegenerate(original));
+        var distance = PerceptualHash.HammingDistance(original, forwarded);
+        Assert.True(distance <= 10, $"distance was {distance}");
     }
 
     [Fact]
-    public async Task Different_content_hashes_far_apart()
+    public async Task Different_scenes_hash_far_apart()
     {
-        var a = await _hasher.HashAsync(await GradientImage(640, 480, quality: 90), default);
+        var a = await _hasher.HashAsync(await TexturedScene(42, 640, 480, 90), default);
+        var b = await _hasher.HashAsync(await TexturedScene(1337, 640, 480, 90), default);
 
-        using var different = new Image<Rgb24>(640, 480);
-        for (var y = 0; y < 480; y++)
-            for (var x = 0; x < 640; x++)
-                different[x, y] = new Rgb24((byte)(255 - 255 * x / 640), (byte)(x % 97), (byte)(255 * y / 480));
-        var ms = new MemoryStream();
-        await different.SaveAsJpegAsync(ms);
-        ms.Position = 0;
-        var b = await _hasher.HashAsync(ms, default);
+        var distance = PerceptualHash.HammingDistance(a, b);
+        Assert.True(distance > 10, $"distance was {distance}");
+    }
 
-        Assert.True(PerceptualHash.HammingDistance(a, b) > 10,
-            $"distance was {PerceptualHash.HammingDistance(a, b)}");
+    [Fact]
+    public async Task Uniform_and_gradient_images_are_degenerate()
+    {
+        // Live finding (22 Jul): gradients hash to all-ones/all-zeros and collide with
+        // every other low-texture image. They must be excluded from reuse detection —
+        // a dark night-time crash photo must never be flagged against someone else's.
+        using var uniform = new Image<Rgb24>(64, 64);
+        var msU = new MemoryStream();
+        await uniform.SaveAsJpegAsync(msU);
+        msU.Position = 0;
+        Assert.True(PerceptualHash.IsDegenerate(await _hasher.HashAsync(msU, default)));
+
+        using var gradient = new Image<Rgb24>(64, 64);
+        for (var y = 0; y < 64; y++)
+            for (var x = 0; x < 64; x++)
+                gradient[x, y] = new Rgb24((byte)(x * 4), (byte)(x * 4), (byte)(x * 4));
+        var msG = new MemoryStream();
+        await gradient.SaveAsJpegAsync(msG);
+        msG.Position = 0;
+        Assert.True(PerceptualHash.IsDegenerate(await _hasher.HashAsync(msG, default)));
+    }
+
+    [Theory]
+    [InlineData(0UL, true)]                     // all zeros
+    [InlineData(ulong.MaxValue, true)]          // all ones
+    [InlineData(0b1011UL, true)]                // 3 bits — still no identity
+    [InlineData(0x5555555555555555UL, false)]   // 32 bits — plenty of structure
+    public void Degeneracy_thresholds(ulong hash, bool degenerate)
+    {
+        Assert.Equal(degenerate, PerceptualHash.IsDegenerate(hash));
     }
 }
 

@@ -12,4 +12,16 @@ public interface IPerceptualHasher
 public static class PerceptualHash
 {
     public static int HammingDistance(ulong a, ulong b) => System.Numerics.BitOperations.PopCount(a ^ b);
+
+    /// <summary>
+    /// Low-texture images (uniform, smooth gradients, very dark/blurred shots) collapse
+    /// into near-all-zero or near-all-one dHashes and collide with each other. Such
+    /// hashes carry no identity — never use them for reuse detection (a night-time
+    /// crash photo must not be flagged as "reused" against someone else's dark photo).
+    /// </summary>
+    public static bool IsDegenerate(ulong hash)
+    {
+        var bits = System.Numerics.BitOperations.PopCount(hash);
+        return bits <= 4 || bits >= 60;
+    }
 }
