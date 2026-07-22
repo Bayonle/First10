@@ -345,7 +345,54 @@ public static class IngestInboundMessageHandler
             ticket.Evidence = newEvidence;
             ticket.Flags = flags.Count > 0 ? string.Join(',', flags.OrderBy(f => f)) : null;
         }
+
+        SendReminderIfSilent(ticket, conversation, message, now, outgoing);
     }
+
+    /// <summary>
+    /// "Never silent, never nagging": if this message earned no other reply (a question
+    /// mid-flow, a duplicate photo), re-state whatever the session is waiting for —
+    /// or the report's status if it's complete. Throttled: quick texts 30s, media 120s.
+    /// </summary>
+    private static void SendReminderIfSilent(
+        IncidentTicket ticket,
+        Conversation conversation,
+        InboundChannelMessage message,
+        DateTimeOffset now,
+        OutgoingMessages outgoing)
+    {
+        if (outgoing.OfType<SendOutboundMessage>().Any())
+        {
+            return; // this message already got a real reply
+        }
+
+        // Throttle from the last thing we said on this ticket, whatever it was.
+        var lastOutbound = Max(ticket.LastReminderSentAt, ticket.ChallengeSentAt,
+            ticket.LocationRequestSentAt, ticket.AckSentAt, ticket.LocationResolvedAt)
+            ?? ticket.CreatedAt;
+        var throttle = message.Kind == InboundKind.Text
+            ? TimeSpan.FromSeconds(30)   // a typed question deserves a fast answer
+            : TimeSpan.FromSeconds(120); // duplicate media can wait
+
+        if (now - lastOutbound < throttle)
+        {
+            return;
+        }
+
+        var kind = ticket switch
+        {
+            { AckSentAt: not null } => OutboundKind.StatusUnderReview,
+            { LocationResolvedAt: null, Evidence: >= EvidenceLevel.VoiceOnly } => OutboundKind.LocationPinRequest,
+            { LocationResolvedAt: not null } => OutboundKind.PinReceivedAck, // photo still pending
+            _ => OutboundKind.ElicitationChallenge, // nothing yet — repeat the full ask
+        };
+
+        ticket.LastReminderSentAt = now;
+        outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, kind, ticket.Language ?? "english"));
+    }
+
+    private static DateTimeOffset? Max(params DateTimeOffset?[] values) =>
+        values.Where(v => v.HasValue).Max();
 
     private sealed record ImageAnalysis(string MediaRef, MediaAsset Asset, bool Reused);
 

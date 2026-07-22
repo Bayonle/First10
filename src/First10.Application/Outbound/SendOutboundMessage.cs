@@ -14,6 +14,9 @@ public enum OutboundKind
     /// Deliberately promises review, never dispatch — dispatch messages only ever follow
     /// an explicit dispatcher action (R1e).</summary>
     ReportAck = 4,
+    /// <summary>Reply to "what's happening?" on a complete report. Review-status only —
+    /// dispatch updates come exclusively from dispatcher actions (R1e).</summary>
+    StatusUnderReview = 5,
 }
 
 /// <summary>
@@ -65,5 +68,12 @@ public static class OutboundTexts
             "A ti gba ìjábọ̀ yín pátápátá. Ó ti wà lọ́wọ́ FRSC dispatch fún àyẹ̀wò. A ó jẹ́ kí ẹ mọ̀ bí ó ti ń lọ.",
         (OutboundKind.ReportAck, _) =>
             "Your report is complete and is now with FRSC dispatch for review. We will keep you updated.",
+
+        (OutboundKind.StatusUnderReview, "pidgin") =>
+            "Your report dey with FRSC dispatch for review now. We go update you once anything change.",
+        (OutboundKind.StatusUnderReview, "yoruba") =>
+            "Ìjábọ̀ yín wà lọ́wọ́ FRSC dispatch fún àyẹ̀wò. A ó fún yín ní ìròyìn ní kété tí nǹkan bá yí padà.",
+        (OutboundKind.StatusUnderReview, _) =>
+            "Your report is with FRSC dispatch for review. We will update you as soon as anything changes.",
     };
 }

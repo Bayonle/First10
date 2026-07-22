@@ -45,6 +45,10 @@ public class IncidentTicket
     /// <summary>One "report complete, with dispatch" acknowledgment per ticket.</summary>
     public DateTimeOffset? AckSentAt { get; set; }
 
+    /// <summary>Last pending-ask reminder / status reply — throttles the "never silent,
+    /// never nagging" middle ground.</summary>
+    public DateTimeOffset? LastReminderSentAt { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
