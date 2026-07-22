@@ -21,6 +21,22 @@ Then open:
 
 Send a message in one tab, see the incident in the other. That loop is the whole point.
 
+## Enabling the AI services (OpenAI)
+
+The pipeline runs fully offline by default (heuristic classifier/extractor, no STT).
+To activate the LLM-backed intent classifier, multimodal extractor, and Whisper STT,
+provide the key via **user-secrets** — never in `appsettings*.json` (those are committed):
+
+```sh
+cd src/First10.Api
+dotnet user-secrets set "OpenAI:ApiKey" "sk-…"
+```
+
+Model choices live in config (`OpenAI:Model`, default `gpt-4o-mini`; `OpenAI:SttModel`,
+default `whisper-1`). DI switches implementations automatically when the key is present —
+no code change. Set a hard monthly spend cap on the OpenAI account before use
+(project paper §3.3 control 3).
+
 ## Tests
 
 ```sh
