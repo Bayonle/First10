@@ -64,9 +64,18 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
             cancellationToken: ct);
 
         var wire = response.Result;
+        // Models sometimes emit the literal strings "null"/"none" instead of JSON null.
+        var casualties = wire.CasualtyEstimate?.Trim();
+        if (string.IsNullOrWhiteSpace(casualties)
+            || casualties.Equals("null", StringComparison.OrdinalIgnoreCase)
+            || casualties.Equals("none", StringComparison.OrdinalIgnoreCase)
+            || casualties.Equals("n/a", StringComparison.OrdinalIgnoreCase))
+        {
+            casualties = null;
+        }
         return new ExtractionResult(
             MapSeverity(wire.Severity),
-            string.IsNullOrWhiteSpace(wire.CasualtyEstimate) ? null : wire.CasualtyEstimate,
+            casualties,
             wire.TemplateKey is "rta_fire" or "rta_okada" ? wire.TemplateKey : "rta_generic",
             string.IsNullOrWhiteSpace(wire.DispatcherSummary)
                 ? (input.Narrative ?? "RTA report — see timeline")

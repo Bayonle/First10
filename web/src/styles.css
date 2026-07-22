@@ -1,0 +1,133 @@
+/* First10 dispatch console — "dispatch manifest" aesthetic (.impeccable.md)
+   Tailwind v4, CSS-first config. Semantic tokens flip between the day (warm paper)
+   and night-shift (warm dark) themes via [data-theme]; utilities map through
+   @theme inline so `bg-paper`, `text-ink`, etc. follow the active theme. */
+
+@import 'tailwindcss';
+
+/* ---------- Day shift (default): warm manila paper, ink text ---------- */
+:root {
+  --paper: oklch(0.972 0.008 85);
+  --paper-raised: oklch(0.987 0.005 85);
+  --paper-sunken: oklch(0.945 0.012 85);
+  --ink: oklch(0.24 0.015 85);
+  --ink-soft: oklch(0.45 0.015 85);
+  --ink-faint: oklch(0.6 0.012 85);
+  --hairline: oklch(0.85 0.015 85);
+  --hairline-strong: oklch(0.55 0.02 85);
+
+  /* Signals — red is severity/danger ONLY */
+  --signal-red: oklch(0.5 0.19 27);
+  --signal-red-tint: oklch(0.95 0.03 27);
+  --signal-amber: oklch(0.6 0.13 75);
+  --signal-amber-deep: oklch(0.45 0.12 75);
+  --signal-amber-tint: oklch(0.95 0.05 85);
+  --signal-green: oklch(0.5 0.12 150);
+  --signal-green-tint: oklch(0.95 0.04 150);
+  --action-blue: oklch(0.42 0.11 255);
+  --action-blue-hover: oklch(0.36 0.11 255);
+  --action-blue-tint: oklch(0.94 0.025 255);
+}
+
+/* ---------- Night shift: same manifest, lights off (never pure black) ---------- */
+[data-theme='dark'] {
+  --paper: oklch(0.21 0.012 85);
+  --paper-raised: oklch(0.25 0.014 85);
+  --paper-sunken: oklch(0.18 0.01 85);
+  --ink: oklch(0.92 0.012 85);
+  --ink-soft: oklch(0.72 0.014 85);
+  --ink-faint: oklch(0.55 0.012 85);
+  --hairline: oklch(0.34 0.015 85);
+  --hairline-strong: oklch(0.5 0.018 85);
+
+  --signal-red: oklch(0.64 0.18 27);
+  --signal-red-tint: oklch(0.28 0.06 27);
+  --signal-amber: oklch(0.74 0.12 78);
+  --signal-amber-deep: oklch(0.78 0.12 78);
+  --signal-amber-tint: oklch(0.28 0.05 80);
+  --signal-green: oklch(0.68 0.11 150);
+  --signal-green-tint: oklch(0.27 0.05 150);
+  --action-blue: oklch(0.68 0.1 255);
+  --action-blue-hover: oklch(0.75 0.1 255);
+  --action-blue-tint: oklch(0.28 0.04 255);
+}
+
+@theme inline {
+  --color-*: initial;
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-paper-sunken: var(--paper-sunken);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-sev: var(--signal-red);
+  --color-sev-tint: var(--signal-red-tint);
+  --color-warn: var(--signal-amber);
+  --color-warn-deep: var(--signal-amber-deep);
+  --color-warn-tint: var(--signal-amber-tint);
+  --color-ok: var(--signal-green);
+  --color-ok-tint: var(--signal-green-tint);
+  --color-act: var(--action-blue);
+  --color-act-hover: var(--action-blue-hover);
+  --color-act-tint: var(--action-blue-tint);
+
+  --font-display: 'Archivo', sans-serif;
+  --font-body: 'Public Sans', sans-serif;
+  --font-mono: 'Spline Sans Mono', monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-body antialiased text-[0.9375rem] leading-normal;
+  }
+  [data-theme='dark'] body {
+    line-height: 1.55; /* light-on-dark type wants extra leading */
+  }
+}
+
+@layer components {
+  /* Rubber-stamp status chip — the manifest's core motif */
+  .stamp {
+    @apply font-display inline-block text-[0.62rem] font-bold uppercase tracking-[0.08em]
+      border border-current px-[7px] py-[1px] whitespace-nowrap leading-normal;
+  }
+  .stamp-solid {
+    @apply text-paper-raised border-transparent;
+  }
+
+  .microlabel {
+    @apply font-display block text-[0.7rem] font-bold uppercase tracking-[0.12em] text-ink-soft;
+  }
+
+  .action-btn {
+    @apply font-display text-[0.75rem] font-bold uppercase tracking-[0.08em]
+      border-[1.5px] border-ink bg-paper-raised text-ink px-4 py-2 cursor-pointer
+      transition-colors duration-100
+      hover:enabled:bg-ink hover:enabled:text-paper-raised
+      disabled:opacity-35 disabled:cursor-not-allowed;
+  }
+  .action-btn-primary {
+    @apply bg-act border-act text-paper-raised hover:enabled:bg-act-hover hover:enabled:border-act-hover hover:enabled:text-paper-raised;
+  }
+
+  .ghost-btn {
+    @apply text-[0.72rem] font-semibold uppercase tracking-[0.05em] px-2 py-[3px]
+      border border-hairline-strong bg-transparent text-ink-soft cursor-pointer
+      hover:border-ink hover:text-ink;
+  }
+
+  .timeline-entry {
+    animation: entry-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@keyframes entry-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-entry { animation: none; }
+}
