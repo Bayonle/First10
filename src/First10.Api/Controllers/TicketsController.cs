@@ -8,6 +8,10 @@ namespace First10.Api.Controllers;
 public sealed record TicketListItem(
     Guid Id,
     TicketStatus Status,
+    First10.Domain.Triage.Disposition Disposition,
+    First10.Domain.Triage.EvidenceLevel Evidence,
+    string? Language,
+    string? Flags,
     string Summary,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
@@ -34,7 +38,9 @@ public class TicketsController(First10DbContext db) : ControllerBase
         await db.Tickets
             .OrderByDescending(t => t.UpdatedAt)
             .Take(100)
-            .Select(t => new TicketListItem(t.Id, t.Status, t.Summary, t.CreatedAt, t.UpdatedAt))
+            .Select(t => new TicketListItem(
+                t.Id, t.Status, t.Disposition, t.Evidence, t.Language, t.Flags,
+                t.Summary, t.CreatedAt, t.UpdatedAt))
             .ToListAsync(ct);
 
     [HttpGet("{id:guid}/timeline")]

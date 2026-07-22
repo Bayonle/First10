@@ -1,44 +1,50 @@
+using First10.Application.Outbound;
+using First10.Domain.Abstractions;
 using First10.Domain.Channels;
 using First10.Domain.Conversations;
 using First10.Domain.Incidents;
+using First10.Domain.Triage;
 using First10.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Wolverine;
 
 namespace First10.Application.Ingest;
 
 /// <summary>
-/// The channel-agnostic entry point of the core pipeline. Adapters publish a normalized
-/// <see cref="InboundChannelMessage"/>; this handler dedupes, resolves the conversation,
-/// opens/extends the (M0 stub) session, and appends to the incident timeline.
-///
-/// M1 replaces the stub session-start with the triage funnel (Stage 0/1, dispositions);
-/// M2 replaces it with the ReportingSession saga. The dedup + conversation + timeline
-/// mechanics here are permanent.
+/// The triage funnel orchestrator (D-008). Order per message:
+///   dedup → conversation resolve → active-session routing (skip intent)
+///   → Stage 0 gates (rate limit, reputation, pHash, geofence, flood)
+///   → Stage 1 intent (text only; evidence-first for photos)
+///   → Stage 2 disposition → ticket + timeline + outbound (challenge / canned reply).
+/// M2 replaces the stub session with the ReportingSession saga; the funnel itself stays.
 /// </summary>
 public static class IngestInboundMessageHandler
 {
-    public static async Task<TicketUpserted?> Handle(
+    public static async Task<OutgoingMessages> Handle(
         InboundChannelMessage message,
         First10DbContext db,
+        IIntentClassifier intentClassifier,
+        IMediaStore mediaStore,
+        IPerceptualHasher hasher,
+        TriageOptions options,
         ILogger logger,
         CancellationToken ct)
     {
-        // Dedup (D-005): every channel redelivers. Fast path here; the unique index
-        // on (Channel, ExternalMessageId) is the authoritative backstop under races.
+        var outgoing = new OutgoingMessages();
+        var now = DateTimeOffset.UtcNow;
+
+        // ---- Dedup (D-005) ----
         var isDuplicate = await db.TimelineEntries.AnyAsync(
             t => t.Channel == message.Channel && t.ExternalMessageId == message.ExternalMessageId, ct);
         if (isDuplicate)
         {
-            logger.LogInformation(
-                "Duplicate delivery dropped: {Channel}/{ExternalMessageId}",
+            logger.LogInformation("Duplicate delivery dropped: {Channel}/{ExternalMessageId}",
                 message.Channel, message.ExternalMessageId);
-            return null;
+            return outgoing;
         }
 
-        var now = DateTimeOffset.UtcNow;
-
-        // Conversation keyed by (Channel, ExternalUserId) — D-005.
+        // ---- Conversation + reputation ----
         var conversation = await db.Conversations.SingleOrDefaultAsync(
             c => c.Channel == message.Channel && c.ExternalUserId == message.ExternalUserId, ct);
         if (conversation is null)
@@ -54,47 +60,275 @@ public static class IngestInboundMessageHandler
         }
         conversation.LastInboundAt = now;
 
-        // M0 stub session: first message opens a provisional ticket immediately (D-007);
-        // subsequent messages from the same conversation enrich it.
-        IncidentTicket? ticket = conversation.ActiveTicketId is { } activeId
+        var trust = await db.ReporterReputations
+            .Where(r => r.Channel == message.Channel && r.ExternalUserId == message.ExternalUserId)
+            .Select(r => (TrustLevel?)r.Trust)
+            .SingleOrDefaultAsync(ct) ?? TrustLevel.Neutral;
+
+        if (trust == TrustLevel.Blocked)
+        {
+            logger.LogInformation("Blocked reporter {User} dropped", message.ExternalUserId);
+            return outgoing; // record nothing, send nothing
+        }
+
+        // ---- Stage 0 media analysis (images) ----
+        var imageAnalysis = message.Kind == InboundKind.Image && message.MediaRef is not null
+            ? await AnalyzeImage(message.MediaRef, db, mediaStore, hasher, options, now, logger, ct)
+            : null;
+
+        var outsideCorridor = message.Location is { } pin
+            && !CorridorGeofence.IsNearCorridor(pin, options.CorridorCenterline, options.CorridorBufferKm);
+
+        // ---- Active-session routing: enrich the open ticket, no intent call ----
+        IncidentTicket? activeTicket = conversation.ActiveTicketId is { } activeId
             ? await db.Tickets.SingleOrDefaultAsync(t => t.Id == activeId && t.Status == TicketStatus.Provisional, ct)
             : null;
 
-        if (ticket is null)
+        if (activeTicket is not null)
         {
-            ticket = new IncidentTicket
-            {
-                Id = Guid.NewGuid(),
-                Status = TicketStatus.Provisional,
-                Summary = Summarize(message),
-                CreatedAt = now,
-                UpdatedAt = now,
-            };
-            db.Tickets.Add(ticket);
-            conversation.ActiveTicketId = ticket.Id;
-        }
-        else
-        {
-            ticket.UpdatedAt = now;
+            AppendEntry(db, activeTicket.Id, conversation, message, imageAnalysis?.MediaRef);
+            await EnrichTicket(activeTicket, conversation, message, imageAnalysis, outsideCorridor, db, options, now, outgoing, ct);
+            outgoing.Add(new TicketUpserted(activeTicket.Id));
+            if (imageAnalysis is not null) imageAnalysis.Asset.TicketId = activeTicket.Id;
+            return outgoing;
         }
 
+        // ---- New-incident attempt: Stage 0 rate limit ----
+        var windowStart = now.AddMinutes(-options.RateLimitWindowMinutes);
+        var recentOpens = await db.TimelineEntries
+            .Where(t => t.ConversationId == conversation.Id
+                && t.Direction == TimelineDirection.Inbound
+                && t.OccurredAt >= windowStart)
+            .Select(t => t.TicketId)
+            .Distinct()
+            .CountAsync(ct);
+        var rateLimited = recentOpens >= options.MaxNewIncidentsPerWindow;
+
+        // ---- Stage 1 intent (evidence-first for non-text) ----
+        IntentResult intent = message.Kind switch
+        {
+            // A photo IS the report — never wait on a classifier (D-008 evidence-first).
+            InboundKind.Image => new IntentResult(MessageIntent.NewIncident, "english", IntentConfidence.High, "evidence-first"),
+            // No STT until M2: treat a voice note as an incident report, flag for review.
+            InboundKind.Voice => new IntentResult(MessageIntent.NewIncident, "english", IntentConfidence.Low, "voice-untranscribed"),
+            InboundKind.LocationPin => new IntentResult(MessageIntent.NewIncident, "english", IntentConfidence.Low, "pin-only"),
+            _ => await intentClassifier.ClassifyAsync(message.Text ?? string.Empty, ct),
+        };
+
+        // ---- Stage 0 flood state (R11) ----
+        var floodWindowStart = now.AddMinutes(-options.FloodWindowMinutes);
+        var floodActive = await db.Tickets.CountAsync(t => t.CreatedAt >= floodWindowStart, ct)
+            >= options.FloodDistinctConversations;
+
+        // ---- Stage 2 disposition ----
+        var evidence = message.Kind switch
+        {
+            InboundKind.Image => EvidenceLevel.Photo,
+            InboundKind.Voice => EvidenceLevel.VoiceOnly,
+            InboundKind.LocationPin => EvidenceLevel.TextOnly, // pin alone: location but no scene evidence
+            _ => EvidenceLevel.TextOnly,
+        };
+
+        var decision = DispositionEngine.Decide(new TriageInput(
+            intent.Intent, evidence, trust, rateLimited, floodActive,
+            imageAnalysis?.Reused ?? false, outsideCorridor));
+
+        switch (decision.Disposition)
+        {
+            case Disposition.Drop:
+                logger.LogInformation("Dropped inbound from {User}: {Flags}",
+                    message.ExternalUserId, string.Join(',', decision.Flags));
+                return outgoing; // dropped: no ticket, no reply (starve spam)
+
+            case Disposition.None:
+                // Not an incident — record on the conversation (no ticket) + canned reply.
+                AppendEntry(db, ticketId: null, conversation, message, imageAnalysis?.MediaRef);
+                outgoing.Add(new SendOutboundMessage(conversation.Id, null, OutboundKind.CannedReply, intent.Language));
+                return outgoing;
+        }
+
+        // ---- Open the provisional ticket (D-007: at session START) ----
+        var ticket = new IncidentTicket
+        {
+            Id = Guid.NewGuid(),
+            Status = TicketStatus.Provisional,
+            Summary = Summarize(message),
+            Disposition = decision.Disposition,
+            Evidence = evidence,
+            Language = intent.Language,
+            Flags = decision.Flags.Count > 0 ? string.Join(',', decision.Flags) : null,
+            ClassifierVersion = intent.ClassifierVersion,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        db.Tickets.Add(ticket);
+        conversation.ActiveTicketId = ticket.Id;
+        if (imageAnalysis is not null) imageAnalysis.Asset.TicketId = ticket.Id;
+
+        AppendEntry(db, ticket.Id, conversation, message, imageAnalysis?.MediaRef);
+        AppendSystemNote(db, ticket.Id, conversation.Id,
+            $"Triaged: {decision.Disposition} · evidence={evidence} · intent={intent.Intent}({intent.Confidence}, {intent.ClassifierVersion})"
+            + (decision.Flags.Count > 0 ? $" · flags=[{string.Join(',', decision.Flags)}]" : ""));
+
+        if (decision.SendChallenge)
+        {
+            ticket.ChallengeSentAt = now;
+            outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ElicitationChallenge, intent.Language));
+        }
+
+        outgoing.Add(new TicketUpserted(ticket.Id));
+        return outgoing;
+    }
+
+    /// <summary>Evidence arriving on an open ticket can only raise its disposition (D-007/D-008).</summary>
+    private static async Task EnrichTicket(
+        IncidentTicket ticket,
+        Conversation conversation,
+        InboundChannelMessage message,
+        ImageAnalysis? imageAnalysis,
+        bool outsideCorridor,
+        First10DbContext db,
+        TriageOptions options,
+        DateTimeOffset now,
+        OutgoingMessages outgoing,
+        CancellationToken ct)
+    {
+        ticket.UpdatedAt = now;
+
+        var newEvidence = message.Kind switch
+        {
+            InboundKind.Image when ticket.Evidence >= EvidenceLevel.Photo => EvidenceLevel.PhotoPlus,
+            InboundKind.Image => EvidenceLevel.Photo,
+            InboundKind.Voice when ticket.Evidence >= EvidenceLevel.Photo => EvidenceLevel.PhotoPlus,
+            InboundKind.Voice when ticket.Evidence < EvidenceLevel.VoiceOnly => EvidenceLevel.VoiceOnly,
+            InboundKind.LocationPin when ticket.Evidence >= EvidenceLevel.Photo => EvidenceLevel.PhotoPlus,
+            _ => ticket.Evidence,
+        };
+        if (newEvidence < ticket.Evidence) newEvidence = ticket.Evidence;
+
+        var flags = (ticket.Flags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []).ToHashSet();
+        if (imageAnalysis?.Reused == true) flags.Add("reused-image");
+        if (outsideCorridor) flags.Add("outside-corridor");
+
+        if (newEvidence != ticket.Evidence || !SetEquals(flags, ticket.Flags))
+        {
+            var floodWindowStart = now.AddMinutes(-options.FloodWindowMinutes);
+            var floodActive = await db.Tickets.CountAsync(t => t.CreatedAt >= floodWindowStart && t.Id != ticket.Id, ct)
+                >= options.FloodDistinctConversations;
+
+            var trust = await db.ReporterReputations
+                .Where(r => r.Channel == conversation.Channel && r.ExternalUserId == conversation.ExternalUserId)
+                .Select(r => (TrustLevel?)r.Trust)
+                .SingleOrDefaultAsync(ct) ?? TrustLevel.Neutral;
+
+            var decision = DispositionEngine.Decide(new TriageInput(
+                MessageIntent.NewIncident, newEvidence, trust,
+                RateLimited: false, floodActive,
+                flags.Contains("reused-image"), flags.Contains("outside-corridor")));
+
+            // Enrichment never lowers a disposition a human may already be acting on.
+            var newDisposition = decision.Disposition > ticket.Disposition ? decision.Disposition : ticket.Disposition;
+            if (newDisposition != ticket.Disposition || newEvidence != ticket.Evidence)
+            {
+                AppendSystemNote(db, ticket.Id, conversation.Id,
+                    $"Evidence received: {message.Kind} · {ticket.Disposition}→{newDisposition} · evidence={newEvidence}");
+            }
+            ticket.Disposition = newDisposition;
+            ticket.Evidence = newEvidence;
+            ticket.Flags = flags.Count > 0 ? string.Join(',', flags.OrderBy(f => f)) : null;
+        }
+    }
+
+    private sealed record ImageAnalysis(string MediaRef, MediaAsset Asset, bool Reused);
+
+    private static async Task<ImageAnalysis?> AnalyzeImage(
+        string mediaRef,
+        First10DbContext db,
+        IMediaStore mediaStore,
+        IPerceptualHasher hasher,
+        TriageOptions options,
+        DateTimeOffset now,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        await using var stream = await mediaStore.OpenReadAsync(mediaRef, ct);
+        if (stream is null)
+        {
+            logger.LogWarning("Media {MediaRef} not found in store; skipping pHash", mediaRef);
+            return null;
+        }
+
+        ulong hash;
+        try
+        {
+            hash = await hasher.HashAsync(stream, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "pHash failed for {MediaRef}; treating as un-hashed", mediaRef);
+            return null;
+        }
+
+        // Pilot scale: linear scan over the corpus is fine (hundreds of rows).
+        var knownHashes = await db.MediaAssets.Select(a => a.PerceptualHash).ToListAsync(ct);
+        var reused = knownHashes.Any(known =>
+            PerceptualHash.HammingDistance(unchecked((ulong)known), hash) <= options.PerceptualHashThreshold);
+
+        var asset = new MediaAsset
+        {
+            Id = Guid.NewGuid(),
+            MediaRef = mediaRef,
+            PerceptualHash = unchecked((long)hash),
+            CreatedAt = now,
+        };
+        db.MediaAssets.Add(asset);
+
+        return new ImageAnalysis(mediaRef, asset, reused);
+    }
+
+    private static void AppendEntry(
+        First10DbContext db, Guid? ticketId, Conversation conversation,
+        InboundChannelMessage message, string? mediaRef)
+    {
         db.TimelineEntries.Add(new TimelineEntry
         {
             Id = Guid.NewGuid(),
-            TicketId = ticket.Id,
+            TicketId = ticketId,
             ConversationId = conversation.Id,
             Direction = TimelineDirection.Inbound,
-            Kind = ToTimelineKind(message.Kind),
-            Text = message.Text,
-            MediaRef = message.MediaRef,
+            Kind = message.Kind switch
+            {
+                InboundKind.Image => TimelineEntryKind.Image,
+                InboundKind.Voice => TimelineEntryKind.Voice,
+                InboundKind.LocationPin => TimelineEntryKind.LocationPin,
+                _ => TimelineEntryKind.Text,
+            },
+            Text = message.Kind == InboundKind.LocationPin && message.Location is { } pin
+                ? $"{pin.Latitude:F5}, {pin.Longitude:F5}"
+                : message.Text,
+            MediaRef = mediaRef ?? message.MediaRef,
             Channel = message.Channel,
             ExternalMessageId = message.ExternalMessageId,
             OccurredAt = message.OccurredAt,
         });
-
-        // Cascaded through the durable outbox: only published if this transaction commits.
-        return new TicketUpserted(ticket.Id);
     }
+
+    private static void AppendSystemNote(First10DbContext db, Guid ticketId, Guid conversationId, string text)
+    {
+        db.TimelineEntries.Add(new TimelineEntry
+        {
+            Id = Guid.NewGuid(),
+            TicketId = ticketId,
+            ConversationId = conversationId,
+            Direction = TimelineDirection.System,
+            Kind = TimelineEntryKind.StatusChange,
+            Text = text,
+            OccurredAt = DateTimeOffset.UtcNow,
+        });
+    }
+
+    private static bool SetEquals(HashSet<string> flags, string? stored) =>
+        flags.SetEquals(stored?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []);
 
     private static string Summarize(InboundChannelMessage message) =>
         message.Kind switch
@@ -105,15 +339,5 @@ public static class IngestInboundMessageHandler
             InboundKind.Voice => "[voice note received]",
             InboundKind.LocationPin => "[location pin received]",
             _ => "[message received]",
-        };
-
-    private static TimelineEntryKind ToTimelineKind(InboundKind kind) =>
-        kind switch
-        {
-            InboundKind.Text => TimelineEntryKind.Text,
-            InboundKind.Image => TimelineEntryKind.Image,
-            InboundKind.Voice => TimelineEntryKind.Voice,
-            InboundKind.LocationPin => TimelineEntryKind.LocationPin,
-            _ => TimelineEntryKind.Text,
         };
 }

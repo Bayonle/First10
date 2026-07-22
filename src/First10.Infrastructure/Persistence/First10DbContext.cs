@@ -9,6 +9,8 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<IncidentTicket> Tickets => Set<IncidentTicket>();
     public DbSet<TimelineEntry> TimelineEntries => Set<TimelineEntry>();
+    public DbSet<ReporterReputation> ReporterReputations => Set<ReporterReputation>();
+    public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,7 +28,28 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
             e.ToTable("incident_tickets");
             e.HasKey(x => x.Id);
             e.Property(x => x.Summary).HasMaxLength(2048);
+            e.Property(x => x.Language).HasMaxLength(32);
+            e.Property(x => x.Flags).HasMaxLength(1024);
+            e.Property(x => x.ClassifierVersion).HasMaxLength(128);
             e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.CreatedAt);
+            e.HasIndex(x => x.Disposition);
+        });
+
+        modelBuilder.Entity<ReporterReputation>(e =>
+        {
+            e.ToTable("reporter_reputations");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ExternalUserId).HasMaxLength(256);
+            e.Property(x => x.Note).HasMaxLength(1024);
+            e.HasIndex(x => new { x.Channel, x.ExternalUserId }).IsUnique();
+        });
+
+        modelBuilder.Entity<MediaAsset>(e =>
+        {
+            e.ToTable("media_assets");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.MediaRef).HasMaxLength(512);
             e.HasIndex(x => x.CreatedAt);
         });
 

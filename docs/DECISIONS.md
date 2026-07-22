@@ -205,6 +205,18 @@ Additional signals: corridor geofence (flag, don't drop), cross-modal consistenc
 
 ---
 
+## D-016 — Object storage: S3-compatible API, MinIO in development
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** M1 needed real media storage for the cockpit's images/voice notes. The original plan deferred blob storage to M2 with an Azure-flavored assumption.
+
+**Decision.** `IMediaStore` gets an S3-compatible implementation (AWS SDK, `ForcePathStyle`) used against a **MinIO container** orchestrated by Aspire in development. Production targets any S3-compatible endpoint — including self-hosted MinIO on the pilot VM, which fits the self-funded budget. The filesystem store remains as the no-dependency fallback (bare `dotnet run`, tests).
+
+**Consequences.** No cloud-vendor lock-in on media. M4's encryption-at-rest and signed-URL serving layer on top of the same interface. MinIO console (dev) doubles as a media inspection tool. **License note:** ImageSharp pinned to 3.1.x (Six Labors Split License — free at this project's scale; v4 requires a paid license key at build time). Revisit if the project's revenue status ever changes.
+
+---
+
 ## Template for new entries
 
 ```

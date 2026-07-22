@@ -26,7 +26,8 @@ public enum TimelineEntryKind
 public class TimelineEntry
 {
     public Guid Id { get; set; }
-    public Guid TicketId { get; set; }
+    /// <summary>Null for conversation-scoped entries that never opened a ticket (canned replies).</summary>
+    public Guid? TicketId { get; set; }
     public Guid ConversationId { get; set; }
     public TimelineDirection Direction { get; set; }
     public TimelineEntryKind Kind { get; set; }

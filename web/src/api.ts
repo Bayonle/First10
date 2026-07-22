@@ -1,4 +1,6 @@
 export type TicketStatus = 0 | 1 | 2 | 3 | 4; // Provisional | Promoted | ExpiredUnverified | Rejected | Closed
+export type Disposition = 0 | 1 | 2 | 3 | 4 | 5; // None | Drop | Challenge | Review | FastTrack | AutoVerify
+export type EvidenceLevel = 0 | 1 | 2 | 3 | 4; // None | TextOnly | VoiceOnly | Photo | PhotoPlus
 
 export const ticketStatusLabel: Record<TicketStatus, string> = {
   0: 'Provisional',
@@ -8,9 +10,39 @@ export const ticketStatusLabel: Record<TicketStatus, string> = {
   4: 'Closed',
 };
 
+export const dispositionLabel: Record<Disposition, string> = {
+  0: '—',
+  1: 'Dropped',
+  2: 'Challenge sent',
+  3: 'Review',
+  4: 'Fast track',
+  5: 'Auto-verified',
+};
+
+export const dispositionColor: Record<Disposition, string> = {
+  0: '#999',
+  1: '#999',
+  2: '#c80', // awaiting evidence
+  3: '#06c', // needs human review
+  4: '#0a6', // strong evidence
+  5: '#080',
+};
+
+export const evidenceLabel: Record<EvidenceLevel, string> = {
+  0: 'no evidence',
+  1: 'text only',
+  2: 'voice only',
+  3: 'photo',
+  4: 'photo+',
+};
+
 export interface TicketListItem {
   id: string;
   status: TicketStatus;
+  disposition: Disposition;
+  evidence: EvidenceLevel;
+  language: string | null;
+  flags: string | null;
   summary: string;
   createdAt: string;
   updatedAt: string;
@@ -26,6 +58,17 @@ export interface TimelineEntryDto {
   occurredAt: string;
 }
 
+export interface ConversationEntryDto extends TimelineEntryDto {
+  ticketId: string | null;
+}
+
+export interface FloodState {
+  active: boolean;
+  ticketsInWindow: number;
+  threshold: number;
+  windowMinutes: number;
+}
+
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json() as Promise<T>;
@@ -37,10 +80,29 @@ export const fetchTickets = () =>
 export const fetchTimeline = (ticketId: string) =>
   fetch(`/api/tickets/${ticketId}/timeline`).then((r) => json<TimelineEntryDto[]>(r));
 
+export const fetchFloodState = () =>
+  fetch('/api/system/flood').then((r) => json<FloodState>(r));
+
+export const fetchConversation = (senderId: string) =>
+  fetch(`/api/local-chat/${encodeURIComponent(senderId)}/timeline`).then((r) =>
+    json<ConversationEntryDto[]>(r),
+  );
+
+export const fetchScenarios = () =>
+  fetch('/api/local-chat/scenarios').then((r) => json<string[]>(r));
+
+export const runScenario = (name: string) =>
+  fetch(`/api/local-chat/scenarios/${encodeURIComponent(name)}`, { method: 'POST' }).then((r) => {
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  });
+
 export interface LocalChatMessage {
   senderId: string;
   text?: string;
-  kind?: number;
+  mediaRef?: string;
+  latitude?: number;
+  longitude?: number;
+  kind?: number; // 0 text, 1 image, 2 voice, 3 pin
 }
 
 export const sendLocalChatMessage = (message: LocalChatMessage) =>
@@ -51,3 +113,14 @@ export const sendLocalChatMessage = (message: LocalChatMessage) =>
   }).then((r) => {
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   });
+
+export const uploadMedia = async (file: Blob, fileName: string): Promise<string> => {
+  const form = new FormData();
+  form.append('file', file, fileName);
+  const r = await fetch('/api/local-chat/media', { method: 'POST', body: form });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  const body = (await r.json()) as { mediaRef: string };
+  return body.mediaRef;
+};
+
+export const mediaUrl = (mediaRef: string) => `/api/media/${encodeURIComponent(mediaRef)}`;

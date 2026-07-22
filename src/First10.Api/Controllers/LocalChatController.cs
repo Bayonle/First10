@@ -1,6 +1,10 @@
 using First10.Api.Filters;
 using First10.Domain.Channels;
+using First10.Domain.Abstractions;
+using First10.Domain.Incidents;
+using First10.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Wolverine;
 
 namespace First10.Api.Controllers;
@@ -20,6 +24,15 @@ public enum LocalMessageKind
     Voice = 2,
     LocationPin = 3,
 }
+
+public sealed record ConversationEntryDto(
+    Guid Id,
+    Guid? TicketId,
+    TimelineDirection Direction,
+    TimelineEntryKind Kind,
+    string? Text,
+    string? MediaRef,
+    DateTimeOffset OccurredAt);
 
 /// <summary>
 /// The Local channel adapter (D-006): the dev cockpit posts here, and messages enter
@@ -44,6 +57,16 @@ public class LocalChatController(IMessageBus bus) : ControllerBase
             return BadRequest("Text is required for text messages.");
         }
 
+        if (request.Kind is LocalMessageKind.Image or LocalMessageKind.Voice && string.IsNullOrWhiteSpace(request.MediaRef))
+        {
+            return BadRequest("MediaRef is required for media messages.");
+        }
+
+        if (request.Kind == LocalMessageKind.LocationPin && (request.Latitude is null || request.Longitude is null))
+        {
+            return BadRequest("Latitude/Longitude are required for location pins.");
+        }
+
         var envelope = new InboundChannelMessage(
             Channel: ChannelKind.Local,
             ExternalUserId: request.SenderId.Trim(),
@@ -57,5 +80,41 @@ public class LocalChatController(IMessageBus bus) : ControllerBase
         // Same contract as every real adapter: publish and return fast.
         await bus.PublishAsync(envelope);
         return Accepted();
+    }
+
+    /// <summary>Upload cockpit media (image/voice) before sending the message that references it.</summary>
+    [HttpPost("media")]
+    [RequestSizeLimit(15 * 1024 * 1024)]
+    public async Task<IActionResult> UploadMedia(IFormFile file, [FromServices] IMediaStore mediaStore, CancellationToken ct)
+    {
+        if (file.Length == 0) return BadRequest("Empty file.");
+
+        string mediaRef;
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            mediaRef = await mediaStore.SaveAsync(stream, file.ContentType, ct);
+        }
+        catch (NotSupportedException e)
+        {
+            return BadRequest(e.Message);
+        }
+
+        return Ok(new { mediaRef });
+    }
+
+    /// <summary>The cockpit's conversation view: both directions, for one persona.</summary>
+    [HttpGet("{senderId}/timeline")]
+    public async Task<IReadOnlyList<ConversationEntryDto>> ConversationTimeline(
+        string senderId, [FromServices] First10DbContext db, CancellationToken ct)
+    {
+        return await db.Conversations
+            .Where(c => c.Channel == ChannelKind.Local && c.ExternalUserId == senderId)
+            .Join(db.TimelineEntries, c => c.Id, e => e.ConversationId, (c, e) => e)
+            .Where(e => e.Direction != TimelineDirection.System) // reporter never sees system notes
+            .OrderBy(e => e.OccurredAt)
+            .Select(e => new ConversationEntryDto(
+                e.Id, e.TicketId, e.Direction, e.Kind, e.Text, e.MediaRef, e.OccurredAt))
+            .ToListAsync(ct);
     }
 }
