@@ -35,6 +35,16 @@ public class IncidentTicket
     /// <summary>Set when the elicitation challenge went out — one challenge per ticket.</summary>
     public DateTimeOffset? ChallengeSentAt { get; set; }
 
+    /// <summary>Location is orthogonal to scene evidence: a pin (M2: or voice cue) sets this.
+    /// Half of the M2 promotion rule — "(photo OR corroboration) AND location resolved".</summary>
+    public DateTimeOffset? LocationResolvedAt { get; set; }
+
+    /// <summary>One pin request per ticket (the paper's location-pin fallback flow).</summary>
+    public DateTimeOffset? LocationRequestSentAt { get; set; }
+
+    /// <summary>One "report complete, with dispatch" acknowledgment per ticket.</summary>
+    public DateTimeOffset? AckSentAt { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

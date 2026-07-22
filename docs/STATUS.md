@@ -44,6 +44,7 @@ _(clean break — M1 closed, M2 not started)_
 
 _(newest first — one line per session: date, what moved)_
 
+- **2026-07-22 (4)** — Reporter feedback loop fixed after cockpit testing surfaced silence-after-pin and canned-reply spam: per-contribution acks (PinReceivedAck / LocationPinRequest / ReportAck, EN+pidgin+yoruba), canned-reply throttle, `LocationResolvedAt` as first-class ticket state + console badge. 47 tests. Full text→pin→photo loop verified live; pHash incidentally caught a reused test image and capped it (working as designed).
 - **2026-07-22 (3)** — M1 built and verified: triage funnel (Stage 0 rate-limit/reputation/pHash/geofence/flood → Stage 1 heuristic + IChatClient classifiers → Stage 2 DispositionEngine with D-008 ceilings), challenge elicitation through the outbox, MinIO object storage via Aspire (D-016), cockpit upgrades (personas, image/stock/voice/pins, scenario runner), console badges + flood banner. 42/42 tests. E2E verified: pidgin challenge flow, canned replies, photo fast-track through MinIO, spam-flood → banner + caps.
 - **2026-07-22 (2)** — M0 built and verified end-to-end: .NET 10 solution, Wolverine outbox on Postgres, local channel provider + dev gate, React SPA with TanStack + SignalR, Aspire AppHost (D-015), CI. 8/8 tests.
 - **2026-07-22 (1)** — Architecture + stack decided; decision log D-001…D-014, milestone docs M0–M5, CLAUDE.md created. No code yet.

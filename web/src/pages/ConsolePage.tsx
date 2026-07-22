@@ -75,6 +75,7 @@ export default function ConsolePage() {
                       {dispositionLabel[t.disposition]}
                     </Badge>
                     <Badge color="#555">{evidenceLabel[t.evidence]}</Badge>
+                    {t.locationResolvedAt && <Badge color="#286">📍 located</Badge>}
                     {t.language && <Badge color="#777">{t.language}</Badge>}
                     {t.flags?.split(',').map((f) => (
                       <Badge key={f} color="#a40">

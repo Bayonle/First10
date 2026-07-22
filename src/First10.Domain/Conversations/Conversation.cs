@@ -16,4 +16,8 @@ public class Conversation
 
     /// <summary>The currently open ticket this conversation feeds, if any (M0 stub session).</summary>
     public Guid? ActiveTicketId { get; set; }
+
+    /// <summary>Throttle marker: at most one canned (non-incident) reply per window.
+    /// Set in the ingest transaction, so it's race-free under rapid-fire greetings.</summary>
+    public DateTimeOffset? LastCannedReplyAt { get; set; }
 }

@@ -44,6 +44,7 @@ export interface TicketListItem {
   language: string | null;
   flags: string | null;
   summary: string;
+  locationResolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

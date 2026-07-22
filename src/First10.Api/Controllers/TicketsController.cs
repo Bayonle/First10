@@ -13,6 +13,7 @@ public sealed record TicketListItem(
     string? Language,
     string? Flags,
     string Summary,
+    DateTimeOffset? LocationResolvedAt,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
@@ -40,7 +41,7 @@ public class TicketsController(First10DbContext db) : ControllerBase
             .Take(100)
             .Select(t => new TicketListItem(
                 t.Id, t.Status, t.Disposition, t.Evidence, t.Language, t.Flags,
-                t.Summary, t.CreatedAt, t.UpdatedAt))
+                t.Summary, t.LocationResolvedAt, t.CreatedAt, t.UpdatedAt))
             .ToListAsync(ct);
 
     [HttpGet("{id:guid}/timeline")]

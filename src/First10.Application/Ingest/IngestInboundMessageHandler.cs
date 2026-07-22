@@ -141,9 +141,15 @@ public static class IngestInboundMessageHandler
                 return outgoing; // dropped: no ticket, no reply (starve spam)
 
             case Disposition.None:
-                // Not an incident — record on the conversation (no ticket) + canned reply.
+                // Not an incident — record on the conversation (no ticket) + canned reply,
+                // throttled: at most one canned reply per conversation per 10 minutes
+                // (repeated greetings must not produce a parrot).
                 AppendEntry(db, ticketId: null, conversation, message, imageAnalysis?.MediaRef);
-                outgoing.Add(new SendOutboundMessage(conversation.Id, null, OutboundKind.CannedReply, intent.Language));
+                if (conversation.LastCannedReplyAt is null || conversation.LastCannedReplyAt < now.AddMinutes(-10))
+                {
+                    conversation.LastCannedReplyAt = now;
+                    outgoing.Add(new SendOutboundMessage(conversation.Id, null, OutboundKind.CannedReply, intent.Language));
+                }
                 return outgoing;
         }
 
@@ -170,17 +176,40 @@ public static class IngestInboundMessageHandler
             $"Triaged: {decision.Disposition} · evidence={evidence} · intent={intent.Intent}({intent.Confidence}, {intent.ClassifierVersion})"
             + (decision.Flags.Count > 0 ? $" · flags=[{string.Join(',', decision.Flags)}]" : ""));
 
+        if (message.Location is not null)
+        {
+            ticket.LocationResolvedAt = now;
+        }
+
+        // Every report gets an immediate response — a reporter must never wonder
+        // whether their message landed (paper §1.2 point 5; cockpit-tested gap).
         if (decision.SendChallenge)
         {
             ticket.ChallengeSentAt = now;
             outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ElicitationChallenge, intent.Language));
+        }
+        else if (ticket.Evidence >= EvidenceLevel.VoiceOnly && ticket.LocationResolvedAt is null)
+        {
+            // Scene evidence first (photo/voice), no location: the §1.4 pin-fallback flow.
+            ticket.LocationRequestSentAt = now;
+            outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.LocationPinRequest, intent.Language));
+        }
+        else if (ticket.LocationResolvedAt is not null)
+        {
+            ticket.AckSentAt = now;
+            outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ReportAck, intent.Language));
         }
 
         outgoing.Add(new TicketUpserted(ticket.Id));
         return outgoing;
     }
 
-    /// <summary>Evidence arriving on an open ticket can only raise its disposition (D-007/D-008).</summary>
+    /// <summary>
+    /// Evidence arriving on an open ticket can only raise its disposition (D-007/D-008),
+    /// and every contribution is acknowledged exactly once (tracked on the ticket):
+    /// pin before photo → PinReceivedAck; photo/voice without location → pin request;
+    /// evidence + location complete → ReportAck.
+    /// </summary>
     private static async Task EnrichTicket(
         IncidentTicket ticket,
         Conversation conversation,
@@ -194,6 +223,43 @@ public static class IngestInboundMessageHandler
         CancellationToken ct)
     {
         ticket.UpdatedAt = now;
+        var language = ticket.Language ?? "english";
+
+        // ---- Location resolution + reporter feedback ----
+        if (message.Kind == InboundKind.LocationPin && ticket.LocationResolvedAt is null)
+        {
+            ticket.LocationResolvedAt = now;
+            AppendSystemNote(db, ticket.Id, conversation.Id, "Location pin received — location resolved");
+
+            if (ticket.Evidence >= EvidenceLevel.VoiceOnly && ticket.AckSentAt is null)
+            {
+                ticket.AckSentAt = now; // scene evidence + location → report is complete
+                outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ReportAck, language));
+            }
+            else if (ticket.AckSentAt is null)
+            {
+                // Pin first, still no photo: acknowledge, keep the photo ask alive.
+                outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.PinReceivedAck, language));
+            }
+        }
+        else if (message.Kind is InboundKind.Image or InboundKind.Voice)
+        {
+            if (ticket.LocationResolvedAt is not null)
+            {
+                if (ticket.AckSentAt is null)
+                {
+                    ticket.AckSentAt = now;
+                    outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.ReportAck, language));
+                }
+            }
+            else if (ticket.LocationRequestSentAt is null)
+            {
+                // Evidence in hand, location still missing — focused pin request
+                // (even if the original challenge mentioned it; reporters skim).
+                ticket.LocationRequestSentAt = now;
+                outgoing.Add(new SendOutboundMessage(conversation.Id, ticket.Id, OutboundKind.LocationPinRequest, language));
+            }
+        }
 
         var newEvidence = message.Kind switch
         {
