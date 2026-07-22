@@ -1,0 +1,40 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+artifacts/
+TestResults/
+*.binlog
+
+# Node / Vite
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Environment & secrets — never commit these
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+*.pfx
+*.key
+
+# IDE
+.idea/
+*.swp
+.DS_Store
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+postgres-data/
+blob-data/
+
+# Logs
+logs/
+*.log

@@ -1,0 +1,204 @@
+# First10 — Technical Decision Log
+
+Per project paper §8.5: single shared document, every cross-team decision, reviewed at stand-ups. Newest entries at the bottom. Format: context → decision → consequences. Revisit only with full-team consensus (paper §4.3).
+
+---
+
+## D-001 — Backend: .NET / ASP.NET Core with controllers
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** Team skill set and preference for a typed, batteries-included backend. Original sketch was Python/FastAPI.
+
+**Decision.** ASP.NET Core (latest LTS), classic controllers (not minimal APIs). Solution layout: `First10.Api` / `First10.Application` / `First10.Domain` / `First10.Infrastructure`.
+
+**Consequences.** Python-ecosystem components (face blur, STT) are consumed as services/libraries from .NET rather than in-process Python. Controllers stay thin — all real work goes through Wolverine (D-002).
+
+---
+
+## D-002 — WolverineFX for messaging, sagas, and outbox
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** The pipeline is inherently asynchronous (webhook ack must be fast; Meta retries deliveries), stateful per conversation, and full of timers (pin reminder 30s, challenge expiry, retention). Outbound sends must be atomic with state changes.
+
+**Decision.** WolverineFX for commands/queries, the `ReportingSession` saga, scheduled (delayed) messages for all timeouts, and the durable outbox over EF Core + Postgres.
+
+**Consequences.**
+- Ticket-state change + outbound WhatsApp send + timeline event are one transaction. This *structurally enforces* risk mitigation R1e (no loop-closure message without a committed dispatcher action) and gives the ≤30s micro-instruction latency metric an audit trail for free.
+- No cron jobs anywhere — every timer is a durable scheduled message delivered back to the saga.
+- Webhook controllers do nothing but validate, normalize, publish, and return 200.
+
+---
+
+## D-003 — AI behind Microsoft.Extensions.AI; pilot provider = OpenAI
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** We want declarative AI calls, provider portability, and DI-native wiring rather than hand-rolled HTTP.
+
+**Decision.** All AI touchpoints (intent gate, extraction, timeline summarizer) are injected services behind `IChatClient` / Microsoft.Extensions.AI abstractions. Pilot runs on the `Microsoft.Extensions.AI.OpenAI` provider.
+
+**Consequences.** Provider swap is a DI registration change. The provider-neutral contract is the set of structured-output schemas (`IntentResult`, `IncidentTicket`, timeline summary) — these are versioned in `First10.Domain` and must not leak provider-specific types. STT (D-010) is a separate service, not part of this abstraction.
+
+---
+
+## D-004 — Frontend: React + Vite + TypeScript + TanStack Router/Query
+
+**Date:** 2026-07-22 · **Status:** Accepted · **Supersedes:** project paper §1.4 "Streamlit-based dashboard"
+
+**Context.** The dispatcher console needs a live multi-reporter timeline, audio playback, review queue, and one-click loop-closure actions — beyond comfortable Streamlit territory. Same stack also hosts the local dev cockpit (D-006).
+
+**Decision.** Single SPA: React + Vite + TS, TanStack Router (routes) and TanStack Query (server state), SignalR for live push (server events invalidate Query caches).
+
+**Consequences.** Project paper needs a scope-note update at the next phase gate (§1.4, §1.7 technology stack row). Console requires real auth before pilot (D-013, M4).
+
+---
+
+## D-005 — Channel abstraction: WhatsApp + Telegram + Local
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** WhatsApp is the pilot channel, but coupling the core to it makes iteration slow (Meta approval, webhooks, real phones) and forecloses Telegram as an R2 fallback.
+
+**Decision.** Channels touch the system at exactly two edges:
+- **Inbound:** per-channel adapters normalize to `InboundChannelMessage` (channel, external user id, external message id, kind, text, media ref, location, timestamp). Adapters own channel dirty work: Meta's ~5-minute media URL expiry, Telegram `getFile`, signature validation, blur + transcode before the envelope is published.
+- **Outbound:** core publishes semantic commands (`SendMicroInstruction`, `RequestLocationPin`, `SendStatusUpdate`); per-channel Wolverine handlers translate, branching on a `ChannelCapabilities` record (voice support, native location request, 24h-template rule, session window).
+
+Identity rules: `Conversation` is keyed by `(Channel, ExternalUserId)` — never bare phone number. Dedup key is `(Channel, ExternalMessageId)` with a unique index (all channels redeliver).
+
+**Consequences.** WhatsApp's 24h/template logic lives only in the WhatsApp sender. Telegram is a ~2-day adapter whenever wanted. Core pipeline is testable with zero external dependencies via D-006.
+
+---
+
+## D-006 — Local channel provider as a dev cockpit
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** WhatsApp approval is on the critical path (paper §2.3 item 3); development must not block on it. §7.4 test protocols require synthetic report streams anyway.
+
+**Decision.** A `Local` channel implementation with a chat UI in the SPA (dev-only route) feeding the identical ingest pipeline. Features: multiple sender personas (exercises multi-reporter dedup), image upload + browser `MediaRecorder` voice notes (real audio through the STT path), map-click location pins, rendering of outbound messages (full loop in two browser tabs), and a **scenario runner** for scripted sequences with controlled timing. `TimeProvider` injected into saga timeout scheduling so timeout tests run in milliseconds.
+
+**Consequences.** Entire pipeline buildable and demoable before Meta approval. Scenario runner *is* the W7/§7.4 test harness (synthetic streams, planted-contradiction timelines). **Hard gate required:** local provider route + controller must be unreachable in production builds — an exposed fake-injection endpoint is a report-forging vector (R11).
+
+---
+
+## D-007 — Provisional ticket at session start, not session end
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** A "collect everything, then create ticket" flow optimizes for completeness; First10 optimizes for the golden hour. Sessions can take minutes to resolve (challenges, pins).
+
+**Decision.** Session start ⇒ provisional `IncidentTicket` exists immediately. Every subsequent message enriches it. "Session complete" is a terminal state transition (`PROMOTED` / `EXPIRED` / `REJECTED` / `MERGED`), not ticket creation. Promotion rule is **sufficiency, not completeness**: `(photo OR corroborating reporter) AND location resolved`.
+
+Session starts on: (a) intent gate says `new_incident`, or (b) **evidence-first** — any photo from a number with no active session, regardless of intent classification. Sessions are per-reporter; incidents are shared aggregates — dedup (200m/5min) merges sessions into one incident, and session/incident lifecycles are decoupled (a session may expire while its incident dispatches; late reporters after transport get "already handled" instead of instructions).
+
+**Consequences.** Dispatcher watches tickets enrich live. Timer-driven expiry never silently kills a ticket — expired-unverified tickets remain visible; the human makes the kill call.
+
+---
+
+## D-008 — Triage funnel with evidence-gated dispositions
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** Need to accept text-only reports, resist spam/pranks/floods, and hold FP < 5% without slowing legitimate reports (paper objective 3) — no single classifier does all three.
+
+**Decision.** Four-stage funnel; each stage cheap enough to run on everything:
+- **Stage 0 (deterministic, no AI):** per-number rate limits, blocklist, conversation-state routing, perceptual-hash check against previously seen + known-viral crash images (WhatsApp strips EXIF; pHash is the freshness proxy).
+- **Stage 1 (cheap LLM intent call):** `new_incident | incident_update | question | greeting_or_test | spam_or_abuse` + language + confidence. Prompt biases toward `new_incident` when uncertain and carries Pidgin/Yoruba few-shot examples.
+- **Stage 2 (disposition):** `AUTO_VERIFY | FAST_TRACK | REVIEW | CHALLENGE | DROP`. **Evidence level caps disposition:** photo+voice → auto-verify eligible; photo → fast-track; voice → review; **text-only → review + challenge, never auto-dispatch, never silent drop.**
+- **Stage 3:** full multimodal extraction, only for surviving reports.
+
+CHALLENGE = elicitation reply ("send a photo and your location pin") — converts real text-only reporters into full-evidence reports and starves spammers, while the provisional ticket stays visible in the review queue flagged "awaiting evidence."
+
+Additional signals: corridor geofence (flag, don't drop), cross-modal consistency field in the extraction schema, reporter reputation (trained volunteers start high-trust; dispatcher-confirmed false reports stick), flood detection capping dispositions at REVIEW (R11).
+
+**Consequences.** AI never dispatches — every disposition ends at a human, so system FP is bounded by dispatcher review, not model accuracy. The asymmetry is codified: a false positive costs a dispatcher seconds; a false negative costs a life.
+
+---
+
+## D-009 — Face blur: local, in-memory, before anything else
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** Paper §1.4 mandates server-side in-memory blurring, no unblurred persistence, no unblurred forwarding. Sending unblurred images to *any* external API (including AI providers) would put a third-party processor in the NDPA story.
+
+**Decision.** Blur runs locally in the ingest adapter (OpenCV-class detector + Gaussian blur), in a single function scope. Only blurred bytes are ever persisted, sent to the AI provider, or shown in the console. Unblurred bytes die with the handler scope.
+
+**Consequences.** No role, debug flag, or admin view can ever render an unblurred face — the data doesn't exist. §7.1 gates: ≥98% blur success on the 50-image test set (M4), ≤1s receipt-to-blur.
+
+---
+
+## D-010 — STT: Whisper for the pilot
+
+**Date:** 2026-07-22 · **Status:** Accepted · **Revisit:** after M5 accuracy check
+
+**Context.** Corridor languages are English, Nigerian Pidgin, Yoruba. Whisper large-v3 handles English + Yoruba; Pidgin transcribes serviceably as English-adjacent text that the LLM normalizes downstream.
+
+**Decision.** Whisper API for pilot STT. Dispatcher console always pairs transcript with playable original audio (D-013), so STT errors are recoverable by a human who speaks the language.
+
+**Consequences.** Mandatory accuracy check against real corridor voice notes before G3 (M5). If Pidgin/Yoruba accuracy is unacceptable, evaluate Nigerian-language ASR vendors — the STT service is behind its own interface, swap is contained.
+
+---
+
+## D-011 — Micro-instruction audio: pre-recorded human voice, not TTS
+
+**Date:** 2026-07-22 · **Status:** Accepted · **Supersedes:** paper §3.1 TTS line (₦150K)
+
+**Context.** The clinical template library is small (~20–30 templates × 3 languages) and frozen after clinical sign-off. TTS adds cost, a quality risk on vernacular, and a re-review burden.
+
+**Decision.** Record all approved templates once with native speakers. AI selects a `template_id`; the system plays stored audio + sends stored text. TTS only if dynamic audio content is ever needed (none in pilot scope).
+
+**Consequences.** ₦150K TTS budget line largely freed (flag at next budget review). Re-recording required only when the clinical advisor revises a template. Aligns exactly with the paper's "AI selects, never generates clinical content" rule.
+
+---
+
+## D-012 — Media pipeline: immediate download, transcode at ingest, signed URLs
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** Meta media URLs expire in ~5 minutes; WhatsApp voice notes are OGG/Opus, which Safari won't play; media is sensitive personal data.
+
+**Decision.**
+- Download media synchronously in the ingest adapter (never lazily from a queue).
+- Audio: store original OGG + transcode to AAC/M4A once at ingest.
+- Storage: encrypted blob storage; DB stores refs only (`TimelineEntry` stream per incident).
+- Serving: authenticated media endpoint issuing short-lived signed URLs; every issuance access-logged `{who, incident, mediaRef, when}`.
+
+**Consequences.** A copied console link dies in minutes. Access log satisfies the paper's "encrypted at rest and access-logged" commitment. Retention job (M4) hard-deletes past the lawyer-set window, deletions themselves audit-logged.
+
+---
+
+## D-013 — Console shows the full conversation; blurred media only; AI clearly marked
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** Dispatcher trust requires checking AI output against raw inputs; §1.4 promises the dispatcher sees underlying individual reports.
+
+**Decision.** The console renders the complete two-way timeline per incident: text verbatim, voice as playable audio **beside** its transcript, images (blurred only), and outbound sends (instructions, challenges, closures) inline. AI artifacts (ticket, severity, timeline summary) render as visually distinct system annotations, never interleaved as messages (R1f). Multi-reporter incidents group by session with reporter badges; content never merged. Pending states ("pin requested 20s ago") render from saga state. Console requires real login (OIDC) before any pilot traffic.
+
+**Consequences.** Voice = personal data under NDPA: same encryption/access-log/retention treatment as images; explicitly in the lawyer's review scope.
+
+---
+
+## D-014 — Extraction: single multimodal structured-output call
+
+**Date:** 2026-07-22 · **Status:** Accepted
+
+**Context.** Classification, severity, casualty estimate, location cues, language, and template selection all derive from the same photo + transcript.
+
+**Decision.** One structured-output call returns the full `IncidentTicket` schema (incident type, severity tier, casualty estimate, location cue + confidence, language, `instruction_template_id`, cross-modal consistency flag, one-line dispatcher summary). Two prompt rules: **template selection, never generation** of clinical content; **severity errs high** when uncertain between tiers (R3).
+
+**Consequences.** Structured output guarantees a well-formed ticket — no parse failures in the hot path. `location_confidence != high` triggers the pin-request flow. Schema is the provider-neutral contract per D-003.
+
+---
+
+## Template for new entries
+
+```
+## D-0XX — Title
+**Date:** · **Status:** Proposed | Accepted | Superseded by D-0YY
+**Context.** …
+**Decision.** …
+**Consequences.** …
+```
