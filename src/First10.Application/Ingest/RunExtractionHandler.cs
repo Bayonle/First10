@@ -80,7 +80,9 @@ public static class RunExtractionHandler
 
         // Cross-modal consistency (D-008): a photo that contradicts the narrative caps
         // an uncorroborated ticket at Review — flagged, visible, never dropped.
-        if (!result.PhotoMatchesNarrative)
+        // Guard on an image actually existing: models return false on no-photo inputs
+        // (found live: every text-only ticket got flagged).
+        if (!result.PhotoMatchesNarrative && latestImageRef is not null)
         {
             var flags = (ticket.Flags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []).ToHashSet();
             if (flags.Add("photo-mismatch"))

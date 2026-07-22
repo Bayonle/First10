@@ -39,6 +39,9 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
         - dispatcher_summary: ONE line, <=120 chars, for a corridor dispatcher.
           Lead with what and where. Example: "Trailer/danfo collision at Kara bridge
           inward Lagos, ~3 injured, 1 trapped".
+          If the narrative RETRACTS the report (mistake, false alarm, child pressed
+          the phone), the summary MUST begin with "REPORTER RETRACTED:" followed by
+          the original claim — never quietly blend a retraction into incident facts.
         """;
 
     public async Task<ExtractionResult> ExtractAsync(ExtractionInput input, CancellationToken ct)

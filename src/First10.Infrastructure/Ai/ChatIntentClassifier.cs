@@ -27,7 +27,10 @@ public sealed class ChatIntentClassifier(IChatClient chatClient) : IIntentClassi
         RULES:
         1. When uncertain between new_incident and anything else, choose new_incident.
            A missed real crash is unrecoverable; a false alarm costs a reviewer seconds.
-        2. Detect the language: english, pidgin, or yoruba.
+        2. Detect the language: english, pidgin, or yoruba. For MIXED or unclear
+           language — including Igbo or other Nigerian languages ("chineke!") — answer
+           "pidgin" (the corridor lingua franca). Only answer "yoruba" when the message
+           is clearly Yoruba.
         3. Examples:
            "Accident dey happen for Mowe o! Two okada down" -> new_incident, pidgin, high
            "Ijamba ti sele ni Ibafo, e ran wa lowo" -> new_incident, yoruba, high

@@ -273,6 +273,26 @@ public static class IngestInboundMessageHandler
         ticket.UpdatedAt = now;
         var language = ticket.Language ?? "english";
 
+        // ---- Pin correction: reporters fat-finger pins ("sorry wrong pin") — a later
+        // pin REPLACES the location and re-evaluates the corridor flag (found live:
+        // an Abuja mis-pin stuck forever, correction silently discarded) ----
+        if (message.Kind == InboundKind.LocationPin && ticket.LocationResolvedAt is not null && message.Location is { } correctedPin)
+        {
+            ticket.LocationLat = correctedPin.Latitude;
+            ticket.LocationLng = correctedPin.Longitude;
+            var nowOutside = !CorridorGeofence.IsNearCorridor(
+                correctedPin, options.CorridorCenterline, options.CorridorBufferKm);
+            var correctionFlags = (ticket.Flags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []).ToHashSet();
+            var flagChanged = nowOutside ? correctionFlags.Add("outside-corridor") : correctionFlags.Remove("outside-corridor");
+            if (flagChanged)
+            {
+                ticket.Flags = correctionFlags.Count > 0 ? string.Join(',', correctionFlags.OrderBy(f => f)) : null;
+            }
+            AppendSystemNote(db, ticket.Id, conversation.Id,
+                $"Location updated by reporter → ({correctedPin.Latitude:F5}, {correctedPin.Longitude:F5})"
+                + (nowOutside ? " [outside corridor]" : ""));
+        }
+
         // ---- Location resolution + reporter feedback ----
         if (message.Kind == InboundKind.LocationPin && ticket.LocationResolvedAt is null && message.Location is { } pin)
         {

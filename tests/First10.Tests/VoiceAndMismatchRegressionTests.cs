@@ -82,6 +82,16 @@ public class VoiceAndMismatchRegressionTests
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         db.Tickets.Add(ticket);
+        db.TimelineEntries.Add(new TimelineEntry
+        {
+            Id = Guid.NewGuid(),
+            TicketId = ticket.Id,
+            ConversationId = conversationId,
+            Direction = TimelineDirection.Inbound,
+            Kind = TimelineEntryKind.Image, // the mismatch guard requires a real photo
+            MediaRef = "scene.jpg",
+            OccurredAt = DateTimeOffset.UtcNow,
+        });
         await db.SaveChangesAsync();
 
         await RunExtractionHandler.Handle(
