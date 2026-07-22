@@ -58,6 +58,7 @@ public static class IngestInboundMessageHandler
             };
             db.Conversations.Add(conversation);
         }
+        var previousInboundAt = conversation.LastInboundAt; // default(DateTimeOffset) on first contact
         conversation.LastInboundAt = now;
 
         var trust = await db.ReporterReputations
@@ -83,6 +84,39 @@ public static class IngestInboundMessageHandler
         IncidentTicket? activeTicket = conversation.ActiveTicketId is { } activeId
             ? await db.Tickets.SingleOrDefaultAsync(t => t.Id == activeId && t.Status == TicketStatus.Provisional, ct)
             : null;
+
+        // Session boundary (lazy until M2's saga): silence longer than the inactivity
+        // window ends the previous reporter session. Without this, one conversation is
+        // one eternal ticket and every later message piles onto it.
+        if (activeTicket is not null
+            && previousInboundAt != default
+            && now - previousInboundAt > TimeSpan.FromMinutes(options.SessionInactivityMinutes))
+        {
+            var challengeUnanswered = activeTicket.ChallengeSentAt is not null
+                && activeTicket.Evidence <= EvidenceLevel.TextOnly
+                && activeTicket.LocationResolvedAt is null;
+
+            if (challengeUnanswered)
+            {
+                // Nothing actionable ever arrived — expire, but keep it visible:
+                // the dispatcher makes the kill call, never a timer (D-007).
+                activeTicket.Status = TicketStatus.ExpiredUnverified;
+                AppendSystemNote(db, activeTicket.Id, conversation.Id,
+                    $"Session expired: challenge unanswered after {options.SessionInactivityMinutes}+ minutes of silence");
+            }
+            else
+            {
+                // Evidence and/or location exist — the incident stays pending for
+                // dispatch; only the reporter session closes.
+                AppendSystemNote(db, activeTicket.Id, conversation.Id,
+                    $"Reporter session closed after {options.SessionInactivityMinutes}+ minutes of silence — later messages open a new incident");
+            }
+
+            activeTicket.UpdatedAt = now;
+            outgoing.Add(new TicketUpserted(activeTicket.Id));
+            conversation.ActiveTicketId = null;
+            activeTicket = null; // current message is triaged as a fresh report below
+        }
 
         if (activeTicket is not null)
         {
