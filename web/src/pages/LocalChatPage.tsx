@@ -112,6 +112,15 @@ export default function LocalChatPage() {
   return (
     <div className="grid grid-cols-[minmax(300px,380px)_1fr] items-start gap-8 p-6">
       <div>
+        {/* A stale tab against a stopped stack must never LOOK alive — messages sent
+            here would go nowhere. Loud banner beats a small "Send failed" line. */}
+        {conversation.isError && (
+          <div className="mb-4 rounded-lg border border-sev/60 bg-sev-tint px-3 py-2.5 text-[0.85rem] font-semibold text-sev">
+            ⛔ Backend unreachable — nothing sent from this page is being delivered.
+            Start the stack with <code className="font-mono">dotnet run --project src/First10.AppHost</code>{' '}
+            and reload.
+          </div>
+        )}
         <h2 className="font-display text-base font-extrabold uppercase tracking-wide">
           Local chat <span className="text-ink-faint">(dev)</span>
         </h2>
