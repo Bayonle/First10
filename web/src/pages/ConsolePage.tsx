@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { divIcon } from 'leaflet';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet';
 import {
   fetchCorridor,
@@ -43,6 +43,7 @@ export default function ConsolePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sevFilter, setSevFilter] = useState<SeverityTier | 'all'>('all');
+  const [sort, setSort] = useState<'priority' | 'newest'>('priority');
 
   const tickets = useQuery({ queryKey: ['tickets'], queryFn: fetchTickets });
   const flood = useQuery({ queryKey: ['flood'], queryFn: fetchFloodState, refetchInterval: 15_000 });
@@ -54,7 +55,7 @@ export default function ConsolePage() {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (tickets.data ?? [])
+    const filtered = (tickets.data ?? [])
       .filter((t) => sevFilter === 'all' || t.severity === sevFilter)
       .filter(
         (t) =>
@@ -63,12 +64,38 @@ export default function ConsolePage() {
           shortId(t.id).toLowerCase().includes(q) ||
           (t.flags ?? '').toLowerCase().includes(q),
       );
-  }, [tickets.data, search, sevFilter]);
+    return sort === 'newest'
+      ? [...filtered].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+      : filtered; // 'priority' = the server's actionability order
+  }, [tickets.data, search, sevFilter, sort]);
 
   const selected = tickets.data?.find((t) => t.id === selectedId);
   // Whole-table aggregates from the server — never clipped by the queue's 100-row cap.
   const kpiQuery = useQuery({ queryKey: ['kpis'], queryFn: fetchKpis, refetchInterval: 30_000 });
   const kpis = kpiQuery.data ?? { active: 0, highSev: 0, unassigned: 0, oldestWaitMinutes: 0 };
+
+  // New-incident toasts: the first fetch seeds the known set silently (no toast storm
+  // on page load); afterwards any unseen id that is genuinely recent gets announced.
+  const [toasts, setToasts] = useState<{ id: string; summary: string; severity: SeverityTier | null }[]>([]);
+  const knownIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!tickets.data) return;
+    if (knownIds.current === null) {
+      knownIds.current = new Set(tickets.data.map((t) => t.id));
+      return;
+    }
+    const fresh = tickets.data.filter((t) => !knownIds.current!.has(t.id));
+    for (const t of fresh) knownIds.current!.add(t.id);
+    const announce = fresh.filter((t) => Date.now() - +new Date(t.createdAt) < 5 * 60_000);
+    if (announce.length === 0) return;
+    setToasts((prev) => [
+      ...prev,
+      ...announce.map((t) => ({ id: t.id, summary: t.summary, severity: t.severity })),
+    ]);
+    for (const t of announce) {
+      setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== t.id)), 8_000);
+    }
+  }, [tickets.data]);
 
   return (
     <div className="grid h-full grid-cols-[400px_minmax(0,1fr)] xl:grid-cols-[400px_minmax(0,1fr)_460px]">
@@ -103,7 +130,7 @@ export default function ConsolePage() {
             className="w-full rounded-lg border border-hairline bg-paper-raised px-3 py-2 text-[0.85rem] placeholder:text-ink-faint focus:border-hairline-strong focus:outline-none"
           />
         </div>
-        <div className="flex gap-1.5 px-3 pb-3">
+        <div className="flex items-center gap-1.5 px-3 pb-3">
           {(['all', 2, 1, 0] as const).map((f) => (
             <button
               key={String(f)}
@@ -113,6 +140,13 @@ export default function ConsolePage() {
               {f === 'all' ? 'All' : { 2: 'High', 1: 'Med', 0: 'Low' }[f]}
             </button>
           ))}
+          <button
+            className="seg-btn ml-auto"
+            title={sort === 'priority' ? 'Actionability order — click for newest first' : 'Newest first — click for priority order'}
+            onClick={() => setSort(sort === 'priority' ? 'newest' : 'priority')}
+          >
+            {sort === 'priority' ? '⇅ Priority' : '⇅ Newest'}
+          </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -143,6 +177,29 @@ export default function ConsolePage() {
           </div>
         )}
       </section>
+
+      {/* ---- New-incident toasts ---- */}
+      <div className="pointer-events-none fixed right-4 bottom-4 z-2000 flex w-96 max-w-full flex-col gap-2">
+        {toasts.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => {
+              setSelectedId(t.id);
+              setToasts((prev) => prev.filter((x) => x.id !== t.id));
+            }}
+            className={`panel pointer-events-auto cursor-pointer px-4 py-3 text-left shadow-lg transition-colors hover:bg-paper-sunken ${
+              t.severity === 2 ? 'border-sev/60' : ''
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full ${t.severity !== null ? sevBar[t.severity] : 'bg-act'}`} />
+              <span className="microlabel">New incident</span>
+              <span className="ml-auto font-mono text-[0.68rem] text-ink-faint">{shortId(t.id)}</span>
+            </div>
+            <div className="mt-1 line-clamp-2 text-[0.88rem] font-medium">{t.summary}</div>
+          </button>
+        ))}
+      </div>
 
       {/* ---- Detail (wide screens) ---- */}
       <section className="hidden min-h-0 overflow-y-auto border-l border-hairline xl:block">
