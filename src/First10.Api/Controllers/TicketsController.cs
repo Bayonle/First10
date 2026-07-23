@@ -50,6 +50,33 @@ public sealed record TimelineEntryDto(
 [Route("api/tickets")]
 public class TicketsController(First10DbContext db) : ControllerBase
 {
+    /// <summary>
+    /// Queue-pressure KPIs for the console header, aggregated over the WHOLE table —
+    /// the list endpoint is capped at 100 rows, and numbers a dispatcher steers by
+    /// must not inherit that ceiling (it would clip exactly during a mass-casualty
+    /// flood, when they matter most).
+    /// </summary>
+    [HttpGet("kpis")]
+    public async Task<object> Kpis(CancellationToken ct)
+    {
+        var open = db.Tickets.Where(t =>
+            t.Status == TicketStatus.Provisional || t.Status == TicketStatus.Promoted);
+
+        var oldestUndispatched = await open
+            .Where(t => t.Dispatch == DispatchState.None)
+            .MinAsync(t => (DateTimeOffset?)t.CreatedAt, ct);
+
+        return new
+        {
+            active = await open.CountAsync(ct),
+            highSev = await open.CountAsync(t => t.Severity == SeverityTier.High, ct),
+            unassigned = await open.CountAsync(t => t.Dispatch == DispatchState.None, ct),
+            oldestWaitMinutes = oldestUndispatched is { } oldest
+                ? Math.Max(0, (DateTimeOffset.UtcNow - oldest).TotalMinutes)
+                : 0,
+        };
+    }
+
     [HttpGet]
     public async Task<IReadOnlyList<TicketListItem>> List(CancellationToken ct)
     {

@@ -167,6 +167,16 @@ async function json<T>(response: Response): Promise<T> {
 export const fetchTickets = () =>
   fetch('/api/tickets').then((r) => json<TicketListItem[]>(r));
 
+export interface KpisDto {
+  active: number;
+  highSev: number;
+  unassigned: number;
+  oldestWaitMinutes: number;
+}
+
+/** Server-side aggregates over the whole table — the queue list is capped at 100, these are not. */
+export const fetchKpis = () => fetch('/api/tickets/kpis').then((r) => json<KpisDto>(r));
+
 export const fetchTimeline = (ticketId: string) =>
   fetch(`/api/tickets/${ticketId}/timeline`).then((r) => json<TimelineEntryDto[]>(r));
 

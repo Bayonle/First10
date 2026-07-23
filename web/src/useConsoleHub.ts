@@ -18,6 +18,7 @@ export function useConsoleHub() {
 
     connection.on('ticketChanged', (ticketId: string) => {
       void queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      void queryClient.invalidateQueries({ queryKey: ['kpis'] });
       void queryClient.invalidateQueries({ queryKey: ['timeline', ticketId] });
     });
 

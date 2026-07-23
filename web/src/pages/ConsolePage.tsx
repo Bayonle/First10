@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet';
 import {
   fetchCorridor,
+  fetchKpis,
   dispositionLabel,
   evidenceLabel,
   fetchDeadLetters,
@@ -65,15 +66,9 @@ export default function ConsolePage() {
   }, [tickets.data, search, sevFilter]);
 
   const selected = tickets.data?.find((t) => t.id === selectedId);
-  const open = (tickets.data ?? []).filter((t) => t.status === 0 || t.status === 1);
-  const kpis = {
-    active: open.length,
-    high: open.filter((t) => t.severity === 2).length,
-    undispatched: open.filter((t) => t.dispatch === 0).length,
-    oldestWaitMin: open
-      .filter((t) => t.dispatch === 0)
-      .reduce((max, t) => Math.max(max, (Date.now() - +new Date(t.createdAt)) / 60_000), 0),
-  };
+  // Whole-table aggregates from the server — never clipped by the queue's 100-row cap.
+  const kpiQuery = useQuery({ queryKey: ['kpis'], queryFn: fetchKpis, refetchInterval: 30_000 });
+  const kpis = kpiQuery.data ?? { active: 0, highSev: 0, unassigned: 0, oldestWaitMinutes: 0 };
 
   return (
     <div className="grid h-full grid-cols-[400px_minmax(0,1fr)] xl:grid-cols-[400px_minmax(0,1fr)_460px]">
@@ -95,9 +90,9 @@ export default function ConsolePage() {
         {/* KPI strip */}
         <div className="grid grid-cols-4 gap-2 p-3">
           <Kpi label="Active" value={kpis.active} />
-          <Kpi label="High sev" value={kpis.high} tone={kpis.high > 0 ? 'text-sev' : undefined} />
-          <Kpi label="Unassigned" value={kpis.undispatched} tone={kpis.undispatched > 0 ? 'text-warn' : undefined} />
-          <Kpi label="Oldest wait" value={formatWait(kpis.oldestWaitMin)} />
+          <Kpi label="High sev" value={kpis.highSev} tone={kpis.highSev > 0 ? 'text-sev' : undefined} />
+          <Kpi label="Unassigned" value={kpis.unassigned} tone={kpis.unassigned > 0 ? 'text-warn' : undefined} />
+          <Kpi label="Oldest wait" value={formatWait(kpis.oldestWaitMinutes)} />
         </div>
 
         <div className="flex items-center gap-2 px-3 pb-2">
