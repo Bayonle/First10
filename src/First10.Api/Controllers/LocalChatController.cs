@@ -2,6 +2,7 @@ using First10.Api.Filters;
 using First10.Domain.Channels;
 using First10.Domain.Abstractions;
 using First10.Domain.Incidents;
+using First10.Infrastructure.Media;
 using First10.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,7 @@ public sealed record ConversationEntryDto(
     TimelineEntryKind Kind,
     string? Text,
     string? MediaRef,
+    string? MediaUrl,
     DateTimeOffset OccurredAt);
 
 /// <summary>
@@ -87,39 +89,54 @@ public class LocalChatController(IMessageBus bus) : ControllerBase
         return Accepted();
     }
 
-    /// <summary>Upload cockpit media (image/voice) before sending the message that references it.</summary>
+    /// <summary>
+    /// Upload cockpit media (image/voice) before sending the message that references it.
+    /// This endpoint stands in for the real adapters' media-download step, so it goes
+    /// through the same D-009 gate: images are face-blurred in memory before the store
+    /// ever sees them — the unblurred bytes exist only inside this request scope.
+    /// </summary>
     [HttpPost("media")]
     [RequestSizeLimit(15 * 1024 * 1024)]
-    public async Task<IActionResult> UploadMedia(IFormFile file, [FromServices] IMediaStore mediaStore, CancellationToken ct)
+    public async Task<IActionResult> UploadMedia(
+        IFormFile file, [FromServices] SecureMediaIngest ingest, CancellationToken ct)
     {
         if (file.Length == 0) return BadRequest("Empty file.");
 
-        string mediaRef;
         try
         {
             await using var stream = file.OpenReadStream();
-            mediaRef = await mediaStore.SaveAsync(stream, file.ContentType, ct);
+            var result = await ingest.IngestAsync(stream, file.ContentType, ct);
+            return Ok(new { result.MediaRef });
         }
         catch (NotSupportedException e)
         {
             return BadRequest(e.Message);
         }
-
-        return Ok(new { mediaRef });
     }
 
     /// <summary>The cockpit's conversation view: both directions, for one persona.</summary>
     [HttpGet("{senderId}/timeline")]
     public async Task<IReadOnlyList<ConversationEntryDto>> ConversationTimeline(
-        string senderId, [FromServices] First10DbContext db, CancellationToken ct)
+        string senderId, [FromServices] First10DbContext db, [FromServices] MediaUrlSigner signer, CancellationToken ct)
     {
-        return await db.Conversations
+        var entries = await db.Conversations
             .Where(c => c.Channel == ChannelKind.Local && c.ExternalUserId == senderId)
             .Join(db.TimelineEntries, c => c.Id, e => e.ConversationId, (c, e) => e)
             .Where(e => e.Direction != TimelineDirection.System) // reporter never sees system notes
             .OrderBy(e => e.OccurredAt)
-            .Select(e => new ConversationEntryDto(
-                e.Id, e.TicketId, e.Direction, e.Kind, e.Text, e.MediaRef, e.OccurredAt))
             .ToListAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        return entries.Select(e =>
+        {
+            string? mediaUrl = null;
+            if (e.MediaRef is not null)
+            {
+                var (expires, sig) = signer.Issue(e.MediaRef, now);
+                mediaUrl = $"/api/media/{Uri.EscapeDataString(e.MediaRef)}?e={expires}&s={sig}";
+            }
+            return new ConversationEntryDto(
+                e.Id, e.TicketId, e.Direction, e.Kind, e.Text, e.MediaRef, mediaUrl, e.OccurredAt);
+        }).ToList();
     }
 }

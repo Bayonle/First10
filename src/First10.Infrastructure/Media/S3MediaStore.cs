@@ -71,6 +71,23 @@ public sealed class S3MediaStore(IAmazonS3 s3, string bucket) : IMediaStore
         }
     }
 
+    public async Task DeleteAsync(string mediaRef, CancellationToken ct)
+    {
+        if (Path.GetFileName(mediaRef) != mediaRef || string.IsNullOrWhiteSpace(mediaRef))
+        {
+            throw new ArgumentException("Invalid media ref.", nameof(mediaRef));
+        }
+
+        try
+        {
+            await s3.DeleteObjectAsync(bucket, mediaRef, ct); // S3 delete is idempotent by contract
+        }
+        catch (AmazonS3Exception e) when (e.ErrorCode is "NoSuchBucket")
+        {
+            // nothing to delete
+        }
+    }
+
     public string GetContentType(string mediaRef) =>
         ContentTypeByExtension.GetValueOrDefault(Path.GetExtension(mediaRef), "application/octet-stream");
 

@@ -37,6 +37,28 @@ default `whisper-1`). DI switches implementations automatically when the key is 
 no code change. Set a hard monthly spend cap on the OpenAI account before use
 (project paper §3.3 control 3).
 
+All LLM calls sit behind heuristic-fallback decorators: if OpenAI is down, rate-limited,
+or returns garbage, triage degrades to keyword heuristics and no report is lost (D-008).
+
+## Security & privacy configuration (M4)
+
+Everything privacy-critical is structural — these keys just parameterize it:
+
+| Key | Dev default | Production |
+|---|---|---|
+| `Media:SigningKey` | built-in dev key | **required** — API refuses to boot without it |
+| `Media:SignedUrlLifetimeMinutes` | 5 | 5 |
+| `Auth:Authority` / `Auth:Audience` | absent → DevAuth (auto-login as `dev-console`) | **required** — OIDC bearer (Entra ID etc.) |
+| `Retention:MediaRetentionDays` | 30 (provisional — lawyer confirms) | lawyer's number |
+| `Meta:AppSecret` | absent → `/api/webhooks` is dead | required for the WhatsApp adapter |
+| `Blur:ModelPath` | RFB-640 beside binaries | same (RFB-320 available for low-latency) |
+
+Inbound images are face-blurred **in memory before persistence** (UltraFace ONNX,
+in-process — nothing unblurred ever touches disk, the console, or an external API).
+Media is served only via 5-minute HMAC-signed URLs; every ticket view and URL issuance
+is audit-logged; a retention sweep deletes media past the window with audit rows.
+The console shows a hard red banner if any message ever dead-letters.
+
 ## Tests
 
 ```sh

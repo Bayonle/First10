@@ -1,6 +1,7 @@
 using First10.Domain.Incidents;
 using First10.Domain.Triage;
 using First10.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,6 +26,7 @@ public sealed record StatsDto(
 /// claim) is measured with FRSC before soft launch (M5) and compared externally.
 /// </summary>
 [ApiController]
+[Authorize(Policy = "Dispatcher")]
 [Route("api/stats")]
 public class StatsController(First10DbContext db) : ControllerBase
 {

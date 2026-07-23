@@ -43,6 +43,13 @@ public sealed class FileSystemMediaStore(string rootPath) : IMediaStore
         return Task.FromResult<Stream?>(File.Exists(path) ? File.OpenRead(path) : null);
     }
 
+    public Task DeleteAsync(string mediaRef, CancellationToken ct)
+    {
+        var path = Resolve(mediaRef);
+        if (File.Exists(path)) File.Delete(path);
+        return Task.CompletedTask;
+    }
+
     public string GetContentType(string mediaRef) =>
         ContentTypeByExtension.GetValueOrDefault(Path.GetExtension(mediaRef), "application/octet-stream");
 

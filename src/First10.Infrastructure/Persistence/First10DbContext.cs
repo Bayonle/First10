@@ -12,6 +12,9 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
     public DbSet<ReporterReputation> ReporterReputations => Set<ReporterReputation>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
     public DbSet<MicroInstructionTemplate> MicroInstructionTemplates => Set<MicroInstructionTemplate>();
+    public DbSet<BlurAuditRecord> BlurAudits => Set<BlurAuditRecord>();
+    public DbSet<AccessLogRecord> AccessLogs => Set<AccessLogRecord>();
+    public DbSet<First10.Domain.SystemStateEntry> SystemState => Set<First10.Domain.SystemStateEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -51,6 +54,33 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
             e.ToTable("media_assets");
             e.HasKey(x => x.Id);
             e.Property(x => x.MediaRef).HasMaxLength(512);
+            e.HasIndex(x => x.CreatedAt);
+        });
+
+        modelBuilder.Entity<First10.Domain.SystemStateEntry>(e =>
+        {
+            e.ToTable("system_state");
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(64);
+            e.Property(x => x.Value).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<AccessLogRecord>(e =>
+        {
+            e.ToTable("access_logs");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Who).HasMaxLength(256);
+            e.Property(x => x.MediaRef).HasMaxLength(512);
+            e.HasIndex(x => x.At);
+            e.HasIndex(x => x.TicketId);
+        });
+
+        modelBuilder.Entity<BlurAuditRecord>(e =>
+        {
+            e.ToTable("blur_audits");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.MediaRef).HasMaxLength(512);
+            e.HasIndex(x => x.MediaRef);
             e.HasIndex(x => x.CreatedAt);
         });
 

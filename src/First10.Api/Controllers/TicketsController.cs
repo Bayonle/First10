@@ -1,5 +1,7 @@
 using First10.Domain.Incidents;
+using First10.Infrastructure.Media;
 using First10.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,14 +35,13 @@ public sealed record TimelineEntryDto(
     TimelineEntryKind Kind,
     string? Text,
     string? MediaRef,
+    string? MediaUrl,
     string? TranscriptText,
     DateTimeOffset OccurredAt);
 
-/// <summary>
-/// Read API for the dispatcher console. M0: unauthenticated reads for the walking
-/// skeleton — OIDC lands in M4 before any pilot traffic (D-013).
-/// </summary>
+/// <summary>Read API for the dispatcher console. Dispatcher role required (M4).</summary>
 [ApiController]
+[Authorize(Policy = "Dispatcher")]
 [Route("api/tickets")]
 public class TicketsController(First10DbContext db) : ControllerBase
 {
@@ -88,8 +89,13 @@ public class TicketsController(First10DbContext db) : ControllerBase
         };
     }
 
+    /// <summary>
+    /// The evidence view. Fetching it is an audited access (§7.1): one TicketViewed row,
+    /// plus one MediaUrlIssued row per signed media URL minted into the response.
+    /// </summary>
     [HttpGet("{id:guid}/timeline")]
-    public async Task<ActionResult<IReadOnlyList<TimelineEntryDto>>> Timeline(Guid id, CancellationToken ct)
+    public async Task<ActionResult<IReadOnlyList<TimelineEntryDto>>> Timeline(
+        Guid id, [FromServices] MediaUrlSigner signer, CancellationToken ct)
     {
         var exists = await db.Tickets.AnyAsync(t => t.Id == id, ct);
         if (!exists)
@@ -97,12 +103,39 @@ public class TicketsController(First10DbContext db) : ControllerBase
             return NotFound();
         }
 
-        return await db.TimelineEntries
+        var entries = await db.TimelineEntries
             .Where(e => e.TicketId == id)
             .OrderBy(e => e.OccurredAt)
-            .Select(e => new TimelineEntryDto(
-                e.Id, e.ConversationId, e.Direction, e.Kind, e.Text, e.MediaRef,
-                e.TranscriptText, e.OccurredAt))
             .ToListAsync(ct);
+
+        var who = User.Identity?.Name ?? "dev-console"; // real identity once OIDC lands
+        var now = DateTimeOffset.UtcNow;
+        db.AccessLogs.Add(new AccessLogRecord
+        {
+            Id = Guid.NewGuid(), Kind = AccessKind.TicketViewed, Who = who, TicketId = id, At = now,
+        });
+
+        var dtos = new List<TimelineEntryDto>(entries.Count);
+        foreach (var e in entries)
+        {
+            string? mediaUrl = null;
+            if (e.MediaRef is not null)
+            {
+                var (expires, sig) = signer.Issue(e.MediaRef, now);
+                mediaUrl = $"/api/media/{Uri.EscapeDataString(e.MediaRef)}?e={expires}&s={sig}";
+                db.AccessLogs.Add(new AccessLogRecord
+                {
+                    Id = Guid.NewGuid(), Kind = AccessKind.MediaUrlIssued, Who = who,
+                    MediaRef = e.MediaRef, TicketId = id, At = now,
+                });
+            }
+
+            dtos.Add(new TimelineEntryDto(
+                e.Id, e.ConversationId, e.Direction, e.Kind, e.Text, e.MediaRef, mediaUrl,
+                e.TranscriptText, e.OccurredAt));
+        }
+
+        await db.SaveChangesAsync(ct);
+        return dtos;
     }
 }

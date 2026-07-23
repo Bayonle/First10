@@ -1,20 +1,28 @@
 using First10.Domain.Abstractions;
+using First10.Infrastructure.Media;
 using Microsoft.AspNetCore.Mvc;
 
 namespace First10.Api.Controllers;
 
 /// <summary>
-/// Serves stored media to the console (images inline, audio for the player).
-/// M4 replaces direct serving with short-lived signed URLs + access logging (D-012);
-/// until then this is dev-scale plumbing behind the same API.
+/// Serves stored media to the console — only via short-lived signed URLs (D-012 / §7.1).
+/// URLs are minted (and access-logged with who + incident) when a ticket timeline is
+/// fetched; this endpoint verifies the HMAC and expiry and serves bytes, nothing more.
+/// An unsigned or expired request gets 403 regardless of whether the media exists.
 /// </summary>
 [ApiController]
+[Microsoft.AspNetCore.Authorization.AllowAnonymous] // the HMAC signature IS the authorization
 [Route("api/media")]
-public class MediaController(IMediaStore mediaStore) : ControllerBase
+public class MediaController(IMediaStore mediaStore, MediaUrlSigner signer) : ControllerBase
 {
     [HttpGet("{mediaRef}")]
-    public async Task<IActionResult> Get(string mediaRef, CancellationToken ct)
+    public async Task<IActionResult> Get(string mediaRef, [FromQuery] long e, [FromQuery] string? s, CancellationToken ct)
     {
+        if (string.IsNullOrEmpty(s) || !signer.Validate(mediaRef, e, s, DateTimeOffset.UtcNow))
+        {
+            return Forbid();
+        }
+
         Stream? stream;
         try
         {

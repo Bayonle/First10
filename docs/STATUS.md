@@ -2,21 +2,24 @@
 
 > Update at the end of every working session. This file is the handoff between sessions — assume the reader (human or AI) has zero short-term memory and 2 minutes.
 
-**Last updated:** 2026-07-22
-**Current milestone:** [M2 — Session & Extraction](milestones/M2-session-extraction.md) **~85% built, core verified live** → remainder + [M3 console](milestones/M3-dispatch-console.md) next
-**Overall:** the full reporter experience runs end-to-end: saga-driven durable timers (unprompted 30s pin reminder verified live), 200m/5min corroboration merging two reporters into one AUTO_VERIFY/Promoted incident, async extraction (severity/template selection) with micro-instructions delivered seconds after the first message, STT + extraction + classification all behind swap-ready interfaces. 76 tests green.
+**Last updated:** 2026-07-23
+**Current milestone:** [M4 — Privacy & Hardening](milestones/M4-privacy-hardening.md) **~90% built and verified live** (M2 ~95%, M3 ~95% — residuals need externals/humans)
+**Overall:** privacy is now structural: in-process face blur before persistence (52/52 faces on a group photo, 580ms), signed 5-min media URLs with full access audit, retention sweep, OIDC-ready auth on every console endpoint, webhook signature gate (deny-by-default), per-IP rate limits, 10× load test passed with live LLM triage. 110+ tests green.
 
 ## Next task
 
-Finish M2 remainder (timeline summarizer; template audio; chat-impl activation when the key lands) **or** start M3 dispatcher actions (dispatched/arrived/transported + outcome marking) — M3 recommended: it unblocks the loop-closure story and the late-reporter path.
+**M5 — Pilot readiness**: WhatsApp Cloud API adapter (blocked on the Meta application — START IT), §7.4 protocol runs against the labelled test set, SPA login once the Entra tenant exists, deployment target + encryption-at-rest verification, baseline time-to-dispatch measurement with FRSC.
 
 ## In flight
 
-- M2 remainder items listed in the milestone doc (~15%: summarizer, audio recordings, chat-impl accuracy pass).
+- M4 residuals: ≥98% blur benchmark (needs the labelled 50-image set), encryption-at-rest verification (deploy-time), vault choice (deploy-time).
+- M2/M3 residuals: template audio recordings, non-developer usability pass.
 
 ## Blockers
 
-- **OpenAI API key still needed** — blocks activation of `ChatIntentClassifier`, `ChatIncidentExtractor`, and `WhisperTranscriber` (all built and wired; DI switches automatically on `OpenAI:ApiKey`). Decide account ownership + spending cap (§3.3 control 3).
+- **Meta WhatsApp Business API application NOT STARTED** — critical path to any pilot traffic; 5–10 business days lead time.
+- **Labelled 50-image test set** — blocks the ≥98% blur gate measurement (G3) and §7.4 protocols.
+- **Entra tenant (or equivalent)** — blocks SPA login UI; API side is ready and configurable.
 
 ## External dependency status
 
@@ -44,6 +47,7 @@ Finish M2 remainder (timeline summarizer; template audio; chat-impl activation w
 
 _(newest first — one line per session: date, what moved)_
 
+- **2026-07-23 (16)** — M4 built + verified live (~90%): D-009 blur gate — UltraFace RFB-640 ONNX fully in-process, pixelate+Gaussian, conservative ladder (maybe-faces enlarged, detector-fail → full-frame, undecodable refused), 52/52 faces on a dense group photo in 580ms, blurred image confirmed rendering in the console via signed URL; `SecureMediaIngest` = only path to media persistence (architecture test scans the source tree); 5-min HMAC media URLs minted per timeline fetch with `{who, incident, mediaRef, when}` audit rows (unsigned/tampered/expired all 403 live); chain-guarded retention sweep + deletion audits; OIDC-ready auth on every endpoint (DevAuth in dev, `AuthCoverageTests` forbids unprotected controllers); Meta webhook signature gate (deny-by-default); per-IP rate limits + body caps; compliance data-flow doc for the lawyer. **Load test paid for itself twice**: (1) rapid messages from a new reporter dead-lettered while the first message's txn waited on the LLM — 96/300 reports lost silently → retry ladder extended past LLM p99 + hard red dead-letter banner on the console (D-008: never silent); (2) OpenAI 429s/malformed JSON dead-lettered reports directly → all LLM services now wear heuristic-fallback decorators (outage degrades quality, never loses a report). Final run: 300/300 accepted, 300/300 processed, dead-letter delta 0. 112 tests. Remaining M4: ≥98% blur benchmark (needs labelled set), encryption-at-rest + vault (deploy-time).
 - **2026-07-22 (15)** — M3 remainder: actionability-ordered queue (dispatch-decision work first, oldest-waiting first — recency no longer buries urgent tickets), pending-ask states on cards ("⏳ awaiting location pin"), `/stats` evaluation ledger computing the §8.3 KPIs live vs paper targets (test data already shows median time-to-dispatch 0.6 min and instruction latency 2s — the panel-deck numbers generate themselves), printable crew briefing. M3 ~95%: only SignalR groups (optimization) + the human usability pass remain. Also: another zombie-stack incident (API surviving pkill served a stale binary → phantom 404) — reinforced the full kill sequence.
 - **2026-07-22 (14)** — Console styled: "dispatch manifest" design system (context in `.impeccable.md`) on Tailwind v4 — warm manila-paper day theme + night-shift dark theme (toggle, OS-pref default, sticky), OKLCH tokens tinted to FRSC amber, red spent exclusively on severity, stamp-style statuses (Archivo/Public Sans/Spline Sans Mono), D-013 as visual law (evidence solid-bordered / outbound dashed / AI-notes italic-sunken / contradictions amber alarm). Styling pass surfaced two real bugs: extractor emitting literal "null" as casualty estimate (guarded), and the action panel scrolling out of reach when selecting mid-queue tickets (columns now scroll independently — the Dispatch button is always visible). Verified via screenshots in both themes. 85 tests.
 - **2026-07-22 (13)** — M3 core built + verified live: `ITimelineSummarizer` (digest + verbatim contradiction surfacing per R1f — live drill quoted "two people trapped" vs "everybody don comot"), dispatcher actions (dispatch/arrive/transport, strictly ordered, double-click-safe) with loop-closure notices to every contributing reporter in their language (R1e: outbox-enforced, only source of these messages), LLM crew briefing generated at dispatch (caught + fixed a prompt-example hallucination — "14:11 victim conscious" leaked from the prompt's own example into a briefing; prompt now forbids facts not in the timeline), outcome marking (false → Rejected + sticky Low trust for all contributing reporters), late-reporter "already handled" path, console detail panel with action/outcome buttons + contradiction highlight + collapsible briefing. Time-to-dispatch (paper objective 1) recorded on every dispatch note. Migration #6; 85 tests.

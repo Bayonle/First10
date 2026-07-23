@@ -1,5 +1,6 @@
 using First10.Application.Dispatch;
 using First10.Domain.Incidents;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Wolverine;
 
@@ -14,6 +15,7 @@ public sealed record OutcomeRequest(TicketOutcome Outcome, string? Officer, stri
 /// committed action, no reporter notification. M4 adds OIDC + real officer identity.
 /// </summary>
 [ApiController]
+[Authorize(Policy = "Dispatcher")]
 [Route("api/tickets/{id:guid}/actions")]
 public class DispatcherActionsController(IMessageBus bus) : ControllerBase
 {

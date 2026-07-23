@@ -9,8 +9,18 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.8.1" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.8.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UltraFace face detector (D-009): detection runs fully in-process; unblurred
+         bytes must never reach an external API, so no cloud vision service.
+         RFB-640 is the default (small faces in group scenes); RFB-320 kept as a
+         lower-latency fallback via Blur:ModelPath. -->
+    <None Include="Media\Models\ultraface-RFB-640.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Media\Models\ultraface-RFB-320.onnx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -1,5 +1,6 @@
 using First10.Domain.Triage;
 using First10.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +9,7 @@ namespace First10.Api.Controllers;
 public sealed record FloodState(bool Active, int TicketsInWindow, int Threshold, int WindowMinutes);
 
 [ApiController]
+[Authorize(Policy = "Dispatcher")]
 [Route("api/system")]
 public class SystemController(First10DbContext db, TriageOptions options) : ControllerBase
 {
@@ -22,5 +24,34 @@ public class SystemController(First10DbContext db, TriageOptions options) : Cont
             count,
             options.FloodDistinctConversations,
             options.FloodWindowMinutes);
+    }
+
+    /// <summary>
+    /// Dead-lettered envelopes = reports the pipeline gave up on (D-008: never silent).
+    /// The console shows a hard red banner whenever this is non-zero; recovery is a
+    /// Wolverine dead-letter replay by an engineer.
+    /// </summary>
+    [HttpGet("dead-letters")]
+    public async Task<ActionResult<object>> DeadLetters(CancellationToken ct)
+    {
+        // Wolverine's schema placement varies by config; probe the known locations.
+        foreach (var table in new[]
+                 { "wolverine_dead_letters", "public.wolverine_dead_letters", "wolverine.wolverine_dead_letters" })
+        {
+            try
+            {
+                var count = await db.Database
+                    .SqlQueryRaw<int>($"SELECT count(*)::int AS \"Value\" FROM {table}")
+                    .SingleAsync(ct);
+                return Ok(new { count });
+            }
+            catch (Exception)
+            {
+                // try the next location
+            }
+        }
+
+        // Table absent (fresh db, non-Postgres test provider) — report unknown, not zero.
+        return Ok(new { count = (int?)null });
     }
 }

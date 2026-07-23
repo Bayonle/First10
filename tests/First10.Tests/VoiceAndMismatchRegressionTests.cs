@@ -13,14 +13,6 @@ namespace First10.Tests;
 /// <summary>Regressions from the first live-LLM run (22 Jul).</summary>
 public class VoiceAndMismatchRegressionTests
 {
-    private sealed class NullMediaStore : IMediaStore
-    {
-        public Task<string> SaveAsync(Stream content, string contentType, CancellationToken ct) => Task.FromResult("x");
-        public Task<Stream?> OpenReadAsync(string mediaRef, CancellationToken ct) =>
-            Task.FromResult<Stream?>(new MemoryStream([1, 2, 3]));
-        public string GetContentType(string mediaRef) => "audio/mp4";
-    }
-
     private sealed class NullHasher : IPerceptualHasher
     {
         public Task<ulong> HashAsync(Stream image, CancellationToken ct) => Task.FromResult(0UL);

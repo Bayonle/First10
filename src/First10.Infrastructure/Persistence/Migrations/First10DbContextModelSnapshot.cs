@@ -89,6 +89,77 @@ namespace First10.Infrastructure.Persistence.Migrations
                     b.ToTable("reporter_reputations", (string)null);
                 });
 
+            modelBuilder.Entity("First10.Domain.Incidents.AccessLogRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MediaRef")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid?>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Who")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("At");
+
+                    b.HasIndex("TicketId");
+
+                    b.ToTable("access_logs", (string)null);
+                });
+
+            modelBuilder.Entity("First10.Domain.Incidents.BlurAuditRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("FacesDetected")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Fallback")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LowConfidenceRegions")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MediaRef")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<double?>("MinConfidence")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("MediaRef");
+
+                    b.ToTable("blur_audits", (string)null);
+                });
+
             modelBuilder.Entity("First10.Domain.Incidents.IncidentTicket", b =>
                 {
                     b.Property<Guid>("Id")
@@ -321,6 +392,22 @@ namespace First10.Infrastructure.Persistence.Migrations
                     b.HasIndex("TicketId", "OccurredAt");
 
                     b.ToTable("timeline_entries", (string)null);
+                });
+
+            modelBuilder.Entity("First10.Domain.SystemStateEntry", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("system_state", (string)null);
                 });
 
             modelBuilder.Entity("Wolverine.EntityFrameworkCore.Internals.IncomingMessage", b =>

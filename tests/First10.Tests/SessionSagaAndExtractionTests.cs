@@ -119,13 +119,6 @@ public class SessionSagaTests
 
 public class ExtractionTests
 {
-    private sealed class NullMediaStore : IMediaStore
-    {
-        public Task<string> SaveAsync(Stream content, string contentType, CancellationToken ct) => Task.FromResult("x");
-        public Task<Stream?> OpenReadAsync(string mediaRef, CancellationToken ct) => Task.FromResult<Stream?>(null);
-        public string GetContentType(string mediaRef) => "image/jpeg";
-    }
-
     private static First10DbContext NewDb() =>
         new(new DbContextOptionsBuilder<First10DbContext>()
             .UseInMemoryDatabase($"first10-{Guid.NewGuid()}")

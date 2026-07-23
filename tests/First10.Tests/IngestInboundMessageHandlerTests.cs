@@ -14,15 +14,6 @@ namespace First10.Tests;
 
 public class IngestInboundMessageHandlerTests
 {
-    private sealed class NullMediaStore : IMediaStore
-    {
-        public Task<string> SaveAsync(Stream content, string contentType, CancellationToken ct) =>
-            Task.FromResult("stub.jpg");
-        public Task<Stream?> OpenReadAsync(string mediaRef, CancellationToken ct) =>
-            Task.FromResult<Stream?>(null); // pHash skipped
-        public string GetContentType(string mediaRef) => "image/jpeg";
-    }
-
     private sealed class NullHasher : IPerceptualHasher
     {
         public Task<ulong> HashAsync(Stream image, CancellationToken ct) => Task.FromResult(0UL);

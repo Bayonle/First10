@@ -217,6 +217,30 @@ Additional signals: corridor geofence (flag, don't drop), cross-modal consistenc
 
 ---
 
+## D-017 — Face blur: UltraFace ONNX in-process, conservative by construction
+
+**Date:** 2026-07-23 · **Status:** Accepted
+
+**Context.** D-009 requires faces blurred before persistence, before any external API, before the console. Cloud vision APIs are structurally ineligible (they would see unblurred bytes). M4 needed a detector that runs in-process.
+
+**Decision.** UltraFace (RFB-640 variant, ~1.5MB ONNX, Microsoft.ML.OnnxRuntime) runs inside the ingest scope; detected regions get irreversible pixelate+Gaussian. Conservative ladder: low-confidence detections (0.35–0.7) are blurred with a 70% enlarged region; detector failure on a decodable image ⇒ full-frame blur + flag; undecodable bytes are refused outright. Missing model file ⇒ every image full-frame blurred (deployment fault stays a visible degradation, never a privacy hole). `SecureMediaIngest` is the only legal caller of `IMediaStore.SaveAsync`, pinned by an architecture test that scans the source tree. Every blur writes an audit row (faces, confidence, fallback, duration).
+
+**Consequences.** RFB-640 found 52/52 faces on a dense group photo in ~580ms warm (within the §7.1 ≤1s budget); RFB-320 stays vendored as a low-latency fallback via `Blur:ModelPath`. pHash is computed on blurred images — consistent, so reuse detection is unaffected. The extraction LLM sees blurred scenes by construction. The ≥98% gate is measured by `BlurBenchmarkTests` the moment the labelled 50-image set lands (external dep).
+
+---
+
+## D-018 — Evidence access: signed URLs minted per timeline fetch, append-only audit
+
+**Date:** 2026-07-23 · **Status:** Accepted
+
+**Context.** §7.1 requires every media access logged `{who, incident, mediaRef, when}` and media URLs that expire. A separate "get me a URL" endpoint per asset would add a round-trip per image and blur the audit trail.
+
+**Decision.** Fetching a ticket timeline mints 5-minute HMAC-signed URLs directly into the DTOs; that issuance moment writes the audit rows (one TicketViewed + one MediaUrlIssued per asset, tied to the authenticated user). The serve endpoint validates signature+expiry and nothing else — unsigned/expired/tampered ⇒ 403. Signing key comes from config (vault in pilot); production boot fails without it. Retention sweep (self-perpetuating Wolverine scheduled message with a chain-id guard against duplicate chains across deploys) deletes media past the window and writes MediaDeleted audit rows; audit tables are never swept. Console auth: OIDC bearer (Auth:Authority) with dispatcher/admin roles; Development runs a DevAuth scheme so authorization stays structurally on. An `AuthCoverageTests` reflection test forbids unprotected controllers; `/api/webhooks` is deny-by-default until Meta:AppSecret exists.
+
+**Consequences.** The SPA needed no auth plumbing yet (signed URLs arrive in DTOs; DevAuth covers dev). SPA login UI + real Entra tenant land with M5 once the tenant exists. Access-log volume is bounded by console usage (pilot scale trivial).
+
+---
+
 ## Template for new entries
 
 ```

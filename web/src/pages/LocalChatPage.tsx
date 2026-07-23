@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   fetchConversation,
   fetchScenarios,
-  mediaUrl,
   runScenario,
   sendLocalChatMessage,
   uploadMedia,
@@ -241,10 +240,10 @@ export default function LocalChatPage() {
                     : 'border-hairline bg-paper-raised'
                 }`}
               >
-                {entry.kind === 1 && entry.mediaRef ? (
-                  <img src={mediaUrl(entry.mediaRef)} alt="sent" className="max-w-full" />
-                ) : entry.kind === 2 && entry.mediaRef ? (
-                  <audio controls src={mediaUrl(entry.mediaRef)} className="max-w-full" />
+                {entry.kind === 1 && entry.mediaUrl ? (
+                  <img src={entry.mediaUrl} alt="sent" className="max-w-full" />
+                ) : entry.kind === 2 && entry.mediaUrl ? (
+                  <audio controls src={entry.mediaUrl} className="max-w-full" />
                 ) : entry.kind === 3 ? (
                   <span className="font-mono text-[0.85rem]">📍 {entry.text}</span>
                 ) : (

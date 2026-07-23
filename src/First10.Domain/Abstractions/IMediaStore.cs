@@ -11,5 +11,8 @@ public interface IMediaStore
 
     Task<Stream?> OpenReadAsync(string mediaRef, CancellationToken ct);
 
+    /// <summary>Idempotent: deleting an absent ref is a no-op (the retention sweep may retry).</summary>
+    Task DeleteAsync(string mediaRef, CancellationToken ct);
+
     string GetContentType(string mediaRef);
 }

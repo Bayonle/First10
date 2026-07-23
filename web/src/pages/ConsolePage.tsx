@@ -3,10 +3,10 @@ import { useState } from 'react';
 import {
   dispositionLabel,
   evidenceLabel,
+  fetchDeadLetters,
   fetchFloodState,
   fetchTickets,
   fetchTimeline,
-  mediaUrl,
   postAction,
   postOutcome,
   severityLabel,
@@ -43,6 +43,11 @@ export default function ConsolePage() {
     queryFn: fetchFloodState,
     refetchInterval: 15_000,
   });
+  const deadLetters = useQuery({
+    queryKey: ['dead-letters'],
+    queryFn: fetchDeadLetters,
+    refetchInterval: 30_000,
+  });
   const timeline = useQuery({
     queryKey: ['timeline', selectedId],
     queryFn: () => fetchTimeline(selectedId!),
@@ -51,6 +56,12 @@ export default function ConsolePage() {
 
   return (
     <div>
+      {(deadLetters.data?.count ?? 0) > 0 && (
+        <div className="mb-6 border-2 border-sev bg-sev-tint px-4 py-3 font-semibold text-sev">
+          ⛔ {deadLetters.data!.count} report message{deadLetters.data!.count === 1 ? '' : 's'} dead-lettered —
+          possible lost reports. Escalate to engineering for dead-letter replay (D-008: never silent).
+        </div>
+      )}
       {flood.data?.active && (
         <div className="mb-6 flex items-center gap-3 border-[1.5px] border-sev bg-sev-tint px-4 py-3 font-semibold text-sev">
           ⚠ Possible report flood: {flood.data.ticketsInWindow} incidents in the last{' '}
@@ -299,9 +310,9 @@ function TimelineRow({ entry }: { entry: TimelineEntryDto }) {
 function EntryBody({ entry }: { entry: TimelineEntryDto }) {
   switch (entry.kind) {
     case 1: // Image — blurred version only, by construction (D-009)
-      return entry.mediaRef ? (
+      return entry.mediaUrl ? (
         <img
-          src={mediaUrl(entry.mediaRef)}
+          src={entry.mediaUrl}
           alt="scene"
           className="mt-1 block max-h-60 max-w-80 border border-hairline-strong"
         />
@@ -311,7 +322,7 @@ function EntryBody({ entry }: { entry: TimelineEntryDto }) {
     case 2: // Voice — playable audio beside transcript (D-013: audio is ground truth)
       return (
         <div className="mt-1">
-          {entry.mediaRef ? <audio controls src={mediaUrl(entry.mediaRef)} /> : <em>[voice note]</em>}
+          {entry.mediaUrl ? <audio controls src={entry.mediaUrl} /> : <em>[voice note]</em>}
           <div className="mt-0.5 text-[0.85rem] text-ink-soft italic">
             {entry.transcriptText
               ? `“${entry.transcriptText}”`

@@ -116,6 +116,8 @@ export interface TimelineEntryDto {
   kind: 0 | 1 | 2 | 3 | 4; // Text | Image | Voice | LocationPin | StatusChange
   text: string | null;
   mediaRef: string | null;
+  /** Short-lived signed URL (~5 min) minted per fetch — the only way media is served. */
+  mediaUrl: string | null;
   transcriptText: string | null;
   occurredAt: string;
 }
@@ -144,6 +146,9 @@ export const fetchTimeline = (ticketId: string) =>
 
 export const fetchFloodState = () =>
   fetch('/api/system/flood').then((r) => json<FloodState>(r));
+
+export const fetchDeadLetters = () =>
+  fetch('/api/system/dead-letters').then((r) => json<{ count: number | null }>(r));
 
 export const fetchConversation = (senderId: string) =>
   fetch(`/api/local-chat/${encodeURIComponent(senderId)}/timeline`).then((r) =>
@@ -184,5 +189,3 @@ export const uploadMedia = async (file: Blob, fileName: string): Promise<string>
   const body = (await r.json()) as { mediaRef: string };
   return body.mediaRef;
 };
-
-export const mediaUrl = (mediaRef: string) => `/api/media/${encodeURIComponent(mediaRef)}`;
