@@ -71,6 +71,7 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
             e.HasKey(x => x.Id);
             e.Property(x => x.Who).HasMaxLength(256);
             e.Property(x => x.MediaRef).HasMaxLength(512);
+            e.Property(x => x.Detail).HasMaxLength(256);
             e.HasIndex(x => x.At);
             e.HasIndex(x => x.TicketId);
         });

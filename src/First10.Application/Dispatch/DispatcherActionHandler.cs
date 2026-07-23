@@ -67,6 +67,18 @@ public static class DispatcherActionHandler
             _ => (DispatchState.Transported, OutboundKind.TransportedNotice),
         };
 
+        // Queryable audit row, same transaction as the state change: the audit can
+        // never disagree with the ticket (complements the human-readable timeline note).
+        db.AccessLogs.Add(new AccessLogRecord
+        {
+            Id = Guid.NewGuid(),
+            Kind = AccessKind.DispatcherAction,
+            Who = action.Officer,
+            TicketId = ticket.Id,
+            Detail = newState.ToString().ToLowerInvariant(),
+            At = now,
+        });
+
         ticket.Dispatch = newState;
         ticket.UpdatedAt = now;
         switch (action.Kind)
@@ -131,6 +143,15 @@ public static class DispatcherActionHandler
         }
 
         var now = DateTimeOffset.UtcNow;
+        db.AccessLogs.Add(new AccessLogRecord
+        {
+            Id = Guid.NewGuid(),
+            Kind = AccessKind.DispatcherAction,
+            Who = command.Officer,
+            TicketId = ticket.Id,
+            Detail = $"outcome:{command.Outcome}",
+            At = now,
+        });
         ticket.Outcome = command.Outcome;
         ticket.OutcomeAt = now;
         ticket.UpdatedAt = now;

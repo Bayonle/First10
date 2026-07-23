@@ -91,11 +91,12 @@ export interface StatsDto {
 
 export const fetchStats = () => fetch('/api/stats').then((r) => json<StatsDto>(r));
 
+// The acting officer is the server-side authenticated identity — never sent by the client.
 export const postAction = (ticketId: string, action: 'dispatch' | 'arrive' | 'transport') =>
   fetch(`/api/tickets/${ticketId}/actions/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ officer: 'duty-officer' }),
+    body: JSON.stringify({}),
   }).then((r) => {
     if (!r.ok) throw new Error(`${r.status}`);
   });
@@ -104,7 +105,7 @@ export const postOutcome = (ticketId: string, outcome: TicketOutcome) =>
   fetch(`/api/tickets/${ticketId}/actions/outcome`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ outcome, officer: 'duty-officer' }),
+    body: JSON.stringify({ outcome }),
   }).then((r) => {
     if (!r.ok) throw new Error(`${r.status}`);
   });

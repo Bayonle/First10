@@ -10,6 +10,11 @@ public enum AccessKind
 
     /// <summary>The retention sweep deleted a media blob past its window (Who = "retention-job").</summary>
     MediaDeleted = 2,
+
+    /// <summary>A dispatcher action (dispatch/arrive/transport/outcome) — Who is the
+    /// authenticated officer, Detail says which action. Written in the same transaction
+    /// as the state change, so the queryable audit can never disagree with the ticket.</summary>
+    DispatcherAction = 3,
 }
 
 /// <summary>
@@ -24,5 +29,7 @@ public class AccessLogRecord
     public string Who { get; set; } = default!;
     public string? MediaRef { get; set; }
     public Guid? TicketId { get; set; }
+    /// <summary>Action specifics (e.g. "dispatched", "outcome:False"). Null for view/issuance rows.</summary>
+    public string? Detail { get; set; }
     public DateTimeOffset At { get; set; }
 }
