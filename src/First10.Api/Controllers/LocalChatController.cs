@@ -90,13 +90,14 @@ public class LocalChatController(IMessageBus bus) : ControllerBase
     }
 
     /// <summary>
-    /// Upload cockpit media (image/voice) before sending the message that references it.
-    /// This endpoint stands in for the real adapters' media-download step, so it goes
-    /// through the same D-009 gate: images are face-blurred in memory before the store
-    /// ever sees them — the unblurred bytes exist only inside this request scope.
+    /// Upload cockpit media (image/voice/video) before sending the message that
+    /// references it. This endpoint stands in for the real adapters' media-download
+    /// step, so it goes through the same D-009 gate: images are face-blurred in memory
+    /// before the store ever sees them, and videos become blurred contact sheets — the
+    /// unblurred bytes exist only inside this request scope. 16MB = WhatsApp's media cap.
     /// </summary>
     [HttpPost("media")]
-    [RequestSizeLimit(15 * 1024 * 1024)]
+    [RequestSizeLimit(16 * 1024 * 1024)]
     public async Task<IActionResult> UploadMedia(
         IFormFile file, [FromServices] SecureMediaIngest ingest, CancellationToken ct)
     {

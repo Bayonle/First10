@@ -159,12 +159,12 @@ export default function LocalChatPage() {
 
         <div className="mt-3 flex flex-wrap gap-1">
           <button className="ghost-btn" onClick={() => fileInputRef.current?.click()}>
-            📷 upload photo
+            📷 photo / 🎬 video
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0];

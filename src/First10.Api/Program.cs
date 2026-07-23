@@ -168,6 +168,9 @@ builder.Services.Configure<BlurOptions>(builder.Configuration.GetSection("Blur")
 builder.Services.AddSingleton<IFaceBlurrer>(sp => new UltraFaceBlurrer(
     sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BlurOptions>>().Value,
     sp.GetRequiredService<ILogger<UltraFaceBlurrer>>()));
+// Videos: frames extracted in-scope (ffmpeg), each frame blurred, only a blurred
+// contact sheet persisted — raw video never touches the store (D-019).
+builder.Services.AddSingleton<IVideoFrameExtractor, FfmpegVideoFrameExtractor>();
 builder.Services.AddScoped<SecureMediaIngest>();
 
 // Short-lived signed media URLs (§7.1): the signature is the serve authorization.

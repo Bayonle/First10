@@ -241,6 +241,18 @@ Additional signals: corridor geofence (flag, don't drop), cross-modal consistenc
 
 ---
 
+## D-019 — Video evidence: blurred contact sheet at the edge, raw video never persisted
+
+**Date:** 2026-07-23 · **Status:** Accepted
+
+**Context.** Bystanders on WhatsApp send videos of crash scenes at least as often as photos. Full-video face blurring (per-frame tracking, re-encoding) is a hard D-009 problem, and the previous behavior — refusal by way of the media stores' extension whitelist — both lost real evidence and left the gate's safety resting on a coincidence: `SecureMediaIngest` passed all non-image types through unblurred, and only the stores' separate whitelist stopped video.
+
+**Decision.** The gate's content-type policy is now explicit and closed: image → blur; whitelisted audio → passthrough; **video → up to 4 evenly-spaced frames extracted in-scope (ffmpeg, temp-spooled and deleted before return), each frame face-blurred individually at full detector resolution, blurred frames composited into ONE contact-sheet JPEG, only the sheet persisted**; anything else refused. A video that cannot be decoded is refused outright — never stored raw. One mediaRef out means the entire downstream pipeline (evidence ceilings, pHash, multimodal extraction, console, signed URLs, retention) treats video evidence exactly like a photo, with zero schema changes. ffmpeg is a deployment prerequisite (`brew install ffmpeg` dev, `apt install ffmpeg` pilot VM); without it videos are refused, not leaked.
+
+**Consequences.** The dispatcher sees a 2×2 sheet of moments spanning the clip; the extraction LLM gets multi-moment context in a single image. The raw clip's motion/audio is deliberately sacrificed — accepting it would mean storing unblurrable faces. The M5 WhatsApp adapter maps inbound video messages to this path (and must ack the reporter so a failed video still elicits "abeg snap picture" rather than silence, per D-008).
+
+---
+
 ## Template for new entries
 
 ```

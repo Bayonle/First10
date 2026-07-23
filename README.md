@@ -6,7 +6,9 @@ AI-powered bystander crash reporting for the Lagos–Ibadan Expressway, piloted 
 
 ## Run locally
 
-Prerequisites: .NET 10 SDK, Node 22+, Docker (for the Postgres container Aspire manages).
+Prerequisites: .NET 10 SDK, Node 22+, Docker (for the Postgres container Aspire manages),
+and **ffmpeg** on PATH (`brew install ffmpeg` / `apt install ffmpeg`) — video evidence is
+converted to blurred contact sheets at ingest (D-019); without ffmpeg, videos are refused.
 
 ```sh
 dotnet run --project src/First10.AppHost
