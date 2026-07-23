@@ -65,7 +65,12 @@ export interface TicketListItem {
   flags: string | null;
   summary: string;
   locationResolvedAt: string | null;
+  locationLat: number | null;
+  locationLng: number | null;
   dispatch: DispatchState;
+  dispatchedAt: string | null;
+  arrivedAt: string | null;
+  transportedAt: string | null;
   outcome: TicketOutcome | null;
   timelineDigest: string | null;
   contradictions: string | null;
@@ -97,6 +102,16 @@ export const postAction = (ticketId: string, action: 'dispatch' | 'arrive' | 'tr
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`${r.status}`);
+  });
+
+/** One-click severity re-grade — audited server-side like every dispatcher action. */
+export const postSeverity = (ticketId: string, severity: SeverityTier) =>
+  fetch(`/api/tickets/${ticketId}/actions/severity`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ severity }),
   }).then((r) => {
     if (!r.ok) throw new Error(`${r.status}`);
   });

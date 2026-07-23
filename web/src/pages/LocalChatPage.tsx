@@ -110,7 +110,7 @@ export default function LocalChatPage() {
   }
 
   return (
-    <div className="grid grid-cols-[minmax(300px,380px)_1fr] items-start gap-8">
+    <div className="grid grid-cols-[minmax(300px,380px)_1fr] items-start gap-8 p-6">
       <div>
         <h2 className="font-display text-base font-extrabold uppercase tracking-wide">
           Local chat <span className="text-ink-faint">(dev)</span>

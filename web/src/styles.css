@@ -1,59 +1,39 @@
-/* First10 dispatch console — "dispatch manifest" aesthetic (.impeccable.md)
-   Tailwind v4, CSS-first config. Semantic tokens flip between the day (warm paper)
-   and night-shift (warm dark) themes via [data-theme]; utilities map through
-   @theme inline so `bg-paper`, `text-ink`, etc. follow the active theme. */
+/* First10 dispatch console — "incident command" dark aesthetic (.impeccable.md).
+   Tailwind v4, CSS-first config. Dark-only command center: near-black canvas,
+   raised charcoal cards, rounded geometry, blue action accent, severity as the
+   loudest color in the room. Token NAMES are unchanged from the manifest era
+   (paper/ink/sev/warn/ok/act) so every page keeps compiling — the VALUES moved. */
 
 @import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
 
-/* ---------- Day shift (default): warm manila paper, ink text ---------- */
 :root {
-  --paper: oklch(0.972 0.008 85);
-  --paper-raised: oklch(0.987 0.005 85);
-  --paper-sunken: oklch(0.945 0.012 85);
-  --ink: oklch(0.24 0.015 85);
-  --ink-soft: oklch(0.45 0.015 85);
-  --ink-faint: oklch(0.6 0.012 85);
-  --hairline: oklch(0.85 0.015 85);
-  --hairline-strong: oklch(0.55 0.02 85);
+  /* Canvas & surfaces — cool near-black, never pure #000 */
+  --paper: oklch(0.16 0.006 260);
+  --paper-raised: oklch(0.205 0.007 260);
+  --paper-sunken: oklch(0.13 0.005 260);
+  --ink: oklch(0.95 0.006 260);
+  --ink-soft: oklch(0.72 0.01 260);
+  --ink-faint: oklch(0.52 0.01 260);
+  --hairline: oklch(0.28 0.008 260);
+  --hairline-strong: oklch(0.38 0.01 260);
 
-  /* Signals — red is severity/danger ONLY */
-  --signal-red: oklch(0.5 0.19 27);
-  --signal-red-tint: oklch(0.95 0.03 27);
-  --signal-amber: oklch(0.6 0.13 75);
-  --signal-amber-deep: oklch(0.45 0.12 75);
-  --signal-amber-tint: oklch(0.95 0.05 85);
-  --signal-green: oklch(0.5 0.12 150);
-  --signal-green-tint: oklch(0.95 0.04 150);
-  --action-blue: oklch(0.42 0.11 255);
-  --action-blue-hover: oklch(0.36 0.11 255);
-  --action-blue-tint: oklch(0.94 0.025 255);
-}
-
-/* ---------- Night shift: same manifest, lights off (never pure black) ---------- */
-[data-theme='dark'] {
-  --paper: oklch(0.21 0.012 85);
-  --paper-raised: oklch(0.25 0.014 85);
-  --paper-sunken: oklch(0.18 0.01 85);
-  --ink: oklch(0.92 0.012 85);
-  --ink-soft: oklch(0.72 0.014 85);
-  --ink-faint: oklch(0.55 0.012 85);
-  --hairline: oklch(0.34 0.015 85);
-  --hairline-strong: oklch(0.5 0.018 85);
-
-  --signal-red: oklch(0.64 0.18 27);
-  --signal-red-tint: oklch(0.28 0.06 27);
-  --signal-amber: oklch(0.74 0.12 78);
-  --signal-amber-deep: oklch(0.78 0.12 78);
-  --signal-amber-tint: oklch(0.28 0.05 80);
-  --signal-green: oklch(0.68 0.11 150);
-  --signal-green-tint: oklch(0.27 0.05 150);
-  --action-blue: oklch(0.68 0.1 255);
-  --action-blue-hover: oklch(0.75 0.1 255);
-  --action-blue-tint: oklch(0.28 0.04 255);
+  /* Signals */
+  --signal-red: oklch(0.66 0.2 25);
+  --signal-red-tint: oklch(0.24 0.06 25);
+  --signal-amber: oklch(0.78 0.14 75);
+  --signal-amber-deep: oklch(0.82 0.14 80);
+  --signal-amber-tint: oklch(0.25 0.05 75);
+  --signal-green: oklch(0.72 0.15 155);
+  --signal-green-tint: oklch(0.24 0.05 155);
+  --action-blue: oklch(0.62 0.17 262);
+  --action-blue-hover: oklch(0.68 0.17 262);
+  --action-blue-tint: oklch(0.26 0.06 262);
 }
 
 @theme inline {
   --color-*: initial;
+  --color-white: #fff;
   --color-paper: var(--paper);
   --color-paper-raised: var(--paper-raised);
   --color-paper-sunken: var(--paper-sunken);
@@ -80,47 +60,81 @@
 
 @layer base {
   body {
-    @apply bg-paper text-ink font-body antialiased text-[0.9375rem] leading-normal;
-  }
-  [data-theme='dark'] body {
+    @apply bg-paper text-ink font-body antialiased text-[0.9375rem];
     line-height: 1.55; /* light-on-dark type wants extra leading */
   }
 }
 
 @layer components {
-  /* Rubber-stamp status chip — the manifest's core motif */
+  /* Status/severity pill — the command center's core chip */
   .stamp {
-    @apply font-display inline-block text-[0.62rem] font-bold uppercase tracking-[0.08em]
-      border border-current px-[7px] py-[1px] whitespace-nowrap leading-normal;
+    @apply font-display inline-block rounded-full text-[0.62rem] font-bold uppercase tracking-[0.08em]
+      border border-current px-2.5 py-[2px] whitespace-nowrap leading-normal;
   }
   .stamp-solid {
-    @apply text-paper-raised border-transparent;
+    @apply text-paper border-transparent;
+  }
+  .stamp-tint {
+    @apply border-transparent;
   }
 
   .microlabel {
-    @apply font-display block text-[0.7rem] font-bold uppercase tracking-[0.12em] text-ink-soft;
+    @apply font-display block text-[0.68rem] font-bold uppercase tracking-[0.12em] text-ink-faint;
+  }
+
+  /* Card surface */
+  .panel {
+    @apply rounded-xl border border-hairline bg-paper-raised;
   }
 
   .action-btn {
-    @apply font-display text-[0.75rem] font-bold uppercase tracking-[0.08em]
-      border-[1.5px] border-ink bg-paper-raised text-ink px-4 py-2 cursor-pointer
+    @apply font-display rounded-lg text-[0.75rem] font-bold uppercase tracking-[0.06em]
+      border border-hairline-strong bg-paper-raised text-ink px-4 py-2 cursor-pointer
       transition-colors duration-100
-      hover:enabled:bg-ink hover:enabled:text-paper-raised
+      hover:enabled:border-ink-soft hover:enabled:bg-paper-sunken
       disabled:opacity-35 disabled:cursor-not-allowed;
   }
   .action-btn-primary {
-    @apply bg-act border-act text-paper-raised hover:enabled:bg-act-hover hover:enabled:border-act-hover hover:enabled:text-paper-raised;
+    @apply bg-act border-act text-white hover:enabled:bg-act-hover hover:enabled:border-act-hover;
   }
 
   .ghost-btn {
-    @apply text-[0.72rem] font-semibold uppercase tracking-[0.05em] px-2 py-[3px]
-      border border-hairline-strong bg-transparent text-ink-soft cursor-pointer
-      hover:border-ink hover:text-ink;
+    @apply rounded-lg text-[0.72rem] font-semibold uppercase tracking-[0.05em] px-2.5 py-1
+      border border-hairline bg-transparent text-ink-soft cursor-pointer
+      transition-colors duration-100
+      hover:border-hairline-strong hover:text-ink;
+  }
+
+  /* Segmented filter/severity control */
+  .seg-btn {
+    @apply rounded-lg border border-hairline bg-paper-raised px-3.5 py-1.5 text-[0.8rem] font-semibold
+      text-ink-soft cursor-pointer transition-colors duration-100 hover:text-ink;
+  }
+  .seg-btn-on {
+    @apply border-hairline-strong bg-paper-sunken text-ink;
   }
 
   .timeline-entry {
     animation: entry-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
   }
+}
+
+/* Leaflet chrome, dark-adjusted */
+.leaflet-container {
+  background: var(--paper-sunken);
+  font: inherit;
+}
+.leaflet-control-zoom a {
+  background: var(--paper-raised) !important;
+  color: var(--ink) !important;
+  border-color: var(--hairline) !important;
+}
+.leaflet-control-attribution {
+  background: color-mix(in oklch, var(--paper) 80%, transparent) !important;
+  color: var(--ink-faint) !important;
+}
+.leaflet-control-attribution a {
+  color: var(--ink-soft) !important;
 }
 
 @keyframes entry-in {

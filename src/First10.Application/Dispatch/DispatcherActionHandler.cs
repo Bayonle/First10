@@ -41,6 +41,10 @@ public enum OverrideKind
 /// </summary>
 public sealed record OverrideDisposition(Guid TicketId, OverrideKind Kind, string Officer, string Reason);
 
+/// <summary>Dispatcher re-grades AI severity — one click like outcome marking, fully audited.
+/// The AI errs high (R3); the human's read of the evidence is the final grade.</summary>
+public sealed record RegradeSeverity(Guid TicketId, SeverityTier Severity, string Officer);
+
 public static class DispatcherActionHandler
 {
     public static async Task<OutgoingMessages> Handle(
@@ -203,6 +207,36 @@ public static class DispatcherActionHandler
             }
             outgoing.Add(new SessionEnded(ticket.Id));
         }
+
+        outgoing.Add(new TicketUpserted(ticket.Id));
+        return outgoing;
+    }
+
+    public static async Task<OutgoingMessages> Handle(
+        RegradeSeverity command,
+        First10DbContext db,
+        CancellationToken ct)
+    {
+        var outgoing = new OutgoingMessages();
+        var ticket = await db.Tickets.SingleOrDefaultAsync(t => t.Id == command.TicketId, ct);
+        if (ticket is null || ticket.Status is TicketStatus.Merged or TicketStatus.Closed || ticket.Severity == command.Severity)
+        {
+            return outgoing; // unavailable or no-op re-grade — nothing changed, nothing audited
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        db.AccessLogs.Add(new AccessLogRecord
+        {
+            Id = Guid.NewGuid(),
+            Kind = AccessKind.DispatcherAction,
+            Who = command.Officer,
+            TicketId = ticket.Id,
+            Detail = $"severity:{command.Severity}",
+            At = now,
+        });
+        AddNote(db, ticket, $"Severity re-graded {ticket.Severity?.ToString() ?? "unset"} → {command.Severity} by {command.Officer}");
+        ticket.Severity = command.Severity;
+        ticket.UpdatedAt = now;
 
         outgoing.Add(new TicketUpserted(ticket.Id));
         return outgoing;

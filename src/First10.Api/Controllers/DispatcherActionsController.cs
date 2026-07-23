@@ -8,6 +8,7 @@ namespace First10.Api.Controllers;
 
 public sealed record OutcomeRequest(TicketOutcome Outcome, string? Note);
 public sealed record OverrideRequest(string? Reason);
+public sealed record SeverityRequest(SeverityTier Severity);
 
 /// <summary>
 /// The dispatcher's hands (M3). Every endpoint publishes an explicit-action command —
@@ -36,6 +37,13 @@ public class DispatcherActionsController(IMessageBus bus) : ControllerBase
     [HttpPost("outcome")]
     public Task<IActionResult> Outcome(Guid id, [FromBody] OutcomeRequest request) =>
         Publish(new MarkOutcome(id, request.Outcome, Officer(), request.Note));
+
+    /// <summary>One-click severity re-grade (audited like every action; no-op if unchanged).</summary>
+    [HttpPost("severity")]
+    public Task<IActionResult> Severity(Guid id, [FromBody] SeverityRequest request) =>
+        !Enum.IsDefined(request.Severity)
+            ? Task.FromResult<IActionResult>(BadRequest($"Unknown severity {(int)request.Severity}."))
+            : Publish(new RegradeSeverity(id, request.Severity, Officer()));
 
     /// <summary>Manual triage override — dispatcher is the final gate (D-008). Reason is mandatory.</summary>
     [HttpPost("promote")]

@@ -43,7 +43,7 @@ export default function StatsPage() {
   ];
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-3xl p-6">
       <h2 className="microlabel mb-1 border-b border-hairline-strong pb-1">
         Pilot evaluation ledger
       </h2>

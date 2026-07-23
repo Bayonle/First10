@@ -19,7 +19,12 @@ public sealed record TicketListItem(
     string? Flags,
     string Summary,
     DateTimeOffset? LocationResolvedAt,
+    double? LocationLat,
+    double? LocationLng,
     DispatchState Dispatch,
+    DateTimeOffset? DispatchedAt,
+    DateTimeOffset? ArrivedAt,
+    DateTimeOffset? TransportedAt,
     TicketOutcome? Outcome,
     string? TimelineDigest,
     string? Contradictions,
@@ -67,8 +72,9 @@ public class TicketsController(First10DbContext db) : ControllerBase
         return tickets.Select(t => new TicketListItem(
             t.Id, t.Status, t.Disposition, t.Evidence, t.Severity, t.CasualtyEstimate,
             t.ReporterCount, t.Language, t.Flags,
-            t.Summary, t.LocationResolvedAt,
-            t.Dispatch, t.Outcome, t.TimelineDigest, t.Contradictions, t.CrewBriefing,
+            t.Summary, t.LocationResolvedAt, t.LocationLat, t.LocationLng,
+            t.Dispatch, t.DispatchedAt, t.ArrivedAt, t.TransportedAt,
+            t.Outcome, t.TimelineDigest, t.Contradictions, t.CrewBriefing,
             PendingAsk(t),
             t.CreatedAt, t.UpdatedAt)).ToList();
     }

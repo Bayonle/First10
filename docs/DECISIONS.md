@@ -253,6 +253,18 @@ Additional signals: corridor geofence (flag, don't drop), cross-modal consistenc
 
 ---
 
+## D-020 — Console design: "incident command" dark center with corridor map
+
+**Date:** 2026-07-23 · **Status:** Accepted (supersedes the "dispatch manifest" visual direction)
+
+**Context.** A command-center design concept (dark three-pane: queue · live map · detail) was adopted wholesale by the team leader over the paper-manifest aesthetic. Reviewed against project reality first: multi-agency responder-unit dispatch with ETAs was cut (no unit tracking exists — the pilot dispatches via FRSC radio relay), and prominent reporter phone-number display was cut (data minimization; timelines keep anonymous reporter badges).
+
+**Decision.** Dark-only "incident command" console: 400px live queue (search, severity filters, KPI strip: active / high-sev / unassigned / oldest-wait), Leaflet corridor map (CARTO dark tiles, severity-colored markers, selection synced queue↔map with fly-to), and a detail panel (reported statement, media grid, one-click audited severity re-grade, progress rail received→triaged→dispatched→arrived→resolved, dispatch/override/outcome actions, digest/contradictions/briefing, full message timeline). Token names from the manifest system were kept (`paper/ink/sev/warn/ok/act`) with dark values swapped in, so all pages restyled without rewrites. New backend surface: `RegradeSeverity` command (audited, no-op when unchanged) and ticket list DTO now carries lat/lng + dispatch timestamps.
+
+**Consequences.** Theme toggle and day theme are gone (dark-only). Map tiles are an external CDN dependency (CARTO) — acceptable for the console (not reporter-facing); revisit if the control room's connectivity is poor. The queue no longer nags about theme parity; `.impeccable.md` records the new direction for future design work.
+
+---
+
 ## Template for new entries
 
 ```

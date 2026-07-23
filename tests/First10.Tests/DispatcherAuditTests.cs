@@ -143,6 +143,30 @@ public class DispatcherAuditTests
         Assert.Equal("officer-chidi", audit.Who);
     }
 
+    [Fact]
+    public async Task Severity_regrade_is_audited_and_noted_and_noops_when_unchanged()
+    {
+        var (db, ticket) = await TicketWithReporter();
+        await using var _ = db;
+        ticket.Severity = SeverityTier.High;
+        await db.SaveChangesAsync();
+
+        await DispatcherActionHandler.Handle(
+            new RegradeSeverity(ticket.Id, SeverityTier.Medium, "officer-chidi"), db, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(SeverityTier.Medium, ticket.Severity);
+        Assert.Equal("severity:Medium", db.AccessLogs.Single(a => a.Kind == AccessKind.DispatcherAction).Detail);
+        Assert.Contains(db.TimelineEntries.Where(e => e.Direction == TimelineDirection.System).ToList(),
+            e => e.Text!.Contains("High → Medium"));
+
+        // Same grade again — nothing changed, nothing audited.
+        await DispatcherActionHandler.Handle(
+            new RegradeSeverity(ticket.Id, SeverityTier.Medium, "officer-chidi"), db, CancellationToken.None);
+        await db.SaveChangesAsync();
+        Assert.Single(db.AccessLogs.Where(a => a.Kind == AccessKind.DispatcherAction));
+    }
+
     // ---- Manual disposition override (dispatcher is the final gate, D-008) ----
 
     [Fact]
