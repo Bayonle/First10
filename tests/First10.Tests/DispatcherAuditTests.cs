@@ -143,6 +143,90 @@ public class DispatcherAuditTests
         Assert.Equal("officer-chidi", audit.Who);
     }
 
+    // ---- Manual disposition override (dispatcher is the final gate, D-008) ----
+
+    [Fact]
+    public async Task Promote_override_lifts_a_provisional_ticket_with_audited_reason()
+    {
+        var (db, ticket) = await TicketWithReporter();
+        await using var _ = db;
+        ticket.Status = TicketStatus.Provisional;
+        await db.SaveChangesAsync();
+
+        await DispatcherActionHandler.Handle(
+            new OverrideDisposition(ticket.Id, OverrideKind.Promote, "officer-chidi", "caller is a trained bystander, credible detail"),
+            db, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(TicketStatus.Promoted, ticket.Status);
+        var audit = db.AccessLogs.Single(a => a.Kind == AccessKind.DispatcherAction);
+        Assert.Equal("override:promote", audit.Detail);
+        var note = db.TimelineEntries.Single(e => e.Direction == TimelineDirection.System && e.Text!.Contains("PROMOTED"));
+        Assert.Contains("trained bystander", note.Text);
+    }
+
+    [Fact]
+    public async Task Reject_override_frees_the_conversation_ends_the_session_and_skips_reputation()
+    {
+        var (db, ticket) = await TicketWithReporter();
+        await using var _ = db;
+        var conversation = db.Conversations.Single();
+        conversation.ActiveTicketId = ticket.Id;
+        await db.SaveChangesAsync();
+
+        var outgoing = await DispatcherActionHandler.Handle(
+            new OverrideDisposition(ticket.Id, OverrideKind.Reject, "officer-chidi", "duplicate of earlier incident"),
+            db, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        Assert.Equal(TicketStatus.Rejected, ticket.Status);
+        Assert.Null(conversation.ActiveTicketId); // reporter can report new incidents
+        Assert.Contains(outgoing, m => m is First10.Application.Sessions.SessionEnded); // saga timers die
+        Assert.Empty(db.ReporterReputations); // override-reject is "not actionable", NOT a false-report strike
+        Assert.Equal("override:reject", db.AccessLogs.Single(a => a.Kind == AccessKind.DispatcherAction).Detail);
+    }
+
+    [Fact]
+    public async Task Dispatched_tickets_cannot_be_reject_overridden()
+    {
+        var (db, ticket) = await TicketWithReporter();
+        await using var _ = db;
+        ticket.Dispatch = DispatchState.Dispatched;
+        await db.SaveChangesAsync();
+
+        await DispatcherActionHandler.Handle(
+            new OverrideDisposition(ticket.Id, OverrideKind.Reject, "officer-chidi", "changed my mind"),
+            db, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        Assert.NotEqual(TicketStatus.Rejected, ticket.Status); // crews are moving — mark the OUTCOME instead
+        Assert.Empty(db.AccessLogs.Where(a => a.Kind == AccessKind.DispatcherAction));
+    }
+
+    [Fact]
+    public async Task Override_endpoints_refuse_a_missing_reason()
+    {
+        var bus = Substitute.For<IMessageBus>();
+        var controller = Controller(bus, "officer-adeyemi");
+
+        var result = await controller.Promote(Guid.NewGuid(), new OverrideRequest("  "));
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Empty(bus.ReceivedCalls()); // nothing published without a reason
+    }
+
+    [Fact]
+    public async Task Override_commands_carry_the_principal_and_trimmed_reason()
+    {
+        var bus = Substitute.For<IMessageBus>();
+        await Controller(bus, "officer-adeyemi").Reject(Guid.NewGuid(), new OverrideRequest("  test ticket  "));
+
+        var command = bus.ReceivedCalls().SelectMany(c => c.GetArguments()).OfType<OverrideDisposition>().Single();
+        Assert.Equal("officer-adeyemi", command.Officer);
+        Assert.Equal("test ticket", command.Reason);
+        Assert.Equal(OverrideKind.Reject, command.Kind);
+    }
+
     [Fact]
     public async Task Invalid_transitions_write_no_audit_row()
     {

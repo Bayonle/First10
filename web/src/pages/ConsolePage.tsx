@@ -190,6 +190,19 @@ function DetailPanel({ ticket }: { ticket: TicketListItem | undefined }) {
     mutationFn: (o: 0 | 1 | 2) => postOutcome(ticket!.id, o),
     onSuccess: invalidate,
   });
+  const override = useMutation({
+    mutationFn: ({ kind, reason }: { kind: 'promote' | 'reject'; reason: string }) =>
+      postOverride(ticket!.id, kind, reason),
+    onSuccess: invalidate,
+  });
+  const askOverride = (kind: 'promote' | 'reject') => {
+    const reason = window.prompt(
+      kind === 'promote'
+        ? 'Promote this ticket over triage — why? (recorded in the audit)'
+        : 'Reject this ticket — why? (recorded in the audit)',
+    );
+    if (reason?.trim()) override.mutate({ kind, reason: reason.trim() });
+  };
 
   if (!ticket) return null;
   const closed = ticket.status === 4 || ticket.status === 3;
@@ -222,6 +235,28 @@ function DetailPanel({ ticket }: { ticket: TicketListItem | undefined }) {
         >
           Transported
         </button>
+
+        {/* Manual triage override — the dispatcher is the final gate (D-008) */}
+        {ticket.status !== 1 && !closed && (
+          <button
+            className="ghost-btn"
+            disabled={override.isPending}
+            onClick={() => askOverride('promote')}
+            title="Overrule triage and promote this ticket"
+          >
+            ↑ promote
+          </button>
+        )}
+        {ticket.dispatch === 0 && !closed && (
+          <button
+            className="ghost-btn text-sev"
+            disabled={override.isPending}
+            onClick={() => askOverride('reject')}
+            title="Reject this ticket (duplicate / test / mistake) — reason required"
+          >
+            ✗ reject
+          </button>
+        )}
 
         <span className="ml-auto flex items-center gap-1 text-[0.75rem] text-ink-soft">
           outcome:

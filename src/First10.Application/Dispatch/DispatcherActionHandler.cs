@@ -27,6 +27,20 @@ public sealed record DispatcherAction(Guid TicketId, DispatcherActionKind Kind, 
 
 public sealed record MarkOutcome(Guid TicketId, TicketOutcome Outcome, string Officer, string? Note);
 
+public enum OverrideKind
+{
+    Promote = 1,
+    Reject = 2,
+}
+
+/// <summary>
+/// The dispatcher overrules triage — the human is the final gate (D-008). Promote lifts
+/// a ticket the funnel under-rated (text-only report the officer believes, an expired
+/// session that was real); Reject kills one that is noise (duplicate, test, mistake).
+/// Reason is mandatory: an override without a why is not auditable.
+/// </summary>
+public sealed record OverrideDisposition(Guid TicketId, OverrideKind Kind, string Officer, string Reason);
+
 public static class DispatcherActionHandler
 {
     public static async Task<OutgoingMessages> Handle(
@@ -188,6 +202,71 @@ public static class DispatcherActionHandler
                 if (conversation.ActiveTicketId == ticket.Id) conversation.ActiveTicketId = null;
             }
             outgoing.Add(new SessionEnded(ticket.Id));
+        }
+
+        outgoing.Add(new TicketUpserted(ticket.Id));
+        return outgoing;
+    }
+
+    public static async Task<OutgoingMessages> Handle(
+        OverrideDisposition command,
+        First10DbContext db,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        var outgoing = new OutgoingMessages();
+        var ticket = await db.Tickets.SingleOrDefaultAsync(t => t.Id == command.TicketId, ct);
+        if (ticket is null || ticket.Status is TicketStatus.Merged or TicketStatus.Closed)
+        {
+            logger.LogWarning("Override {Kind} on unavailable ticket {TicketId} ignored", command.Kind, command.TicketId);
+            return outgoing;
+        }
+
+        // Guards: promoting an already-promoted ticket is a no-op; a ticket with crews
+        // already moving cannot be rejected (mark the OUTCOME instead — that is the
+        // truthful record of a dispatched incident); re-rejecting is a no-op.
+        var valid = command.Kind switch
+        {
+            OverrideKind.Promote => ticket.Status is TicketStatus.Provisional or TicketStatus.ExpiredUnverified
+                                                     or TicketStatus.Rejected,
+            OverrideKind.Reject => ticket.Status is not TicketStatus.Rejected && ticket.Dispatch == DispatchState.None,
+            _ => false,
+        };
+        if (!valid)
+        {
+            logger.LogInformation("Override {Kind} invalid for ticket {TicketId} in ({Status}, {Dispatch}); ignored",
+                command.Kind, ticket.Id, ticket.Status, ticket.Dispatch);
+            return outgoing;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        db.AccessLogs.Add(new AccessLogRecord
+        {
+            Id = Guid.NewGuid(),
+            Kind = AccessKind.DispatcherAction,
+            Who = command.Officer,
+            TicketId = ticket.Id,
+            Detail = $"override:{command.Kind.ToString().ToLowerInvariant()}",
+            At = now,
+        });
+        ticket.UpdatedAt = now;
+
+        if (command.Kind == OverrideKind.Promote)
+        {
+            ticket.Status = TicketStatus.Promoted;
+            AddNote(db, ticket, $"PROMOTED by {command.Officer} (override) — reason: {command.Reason}");
+        }
+        else
+        {
+            ticket.Status = TicketStatus.Rejected;
+            AddNote(db, ticket, $"REJECTED by {command.Officer} (override) — reason: {command.Reason}");
+            // No reputation hit: an override-reject is "not actionable" (duplicate, test,
+            // mistake) — dispatcher-confirmed FALSE reports go through outcome marking.
+            foreach (var conversation in await ContributingConversations(db, ticket.Id, ct))
+            {
+                if (conversation.ActiveTicketId == ticket.Id) conversation.ActiveTicketId = null;
+            }
+            outgoing.Add(new SessionEnded(ticket.Id)); // stale saga timers die
         }
 
         outgoing.Add(new TicketUpserted(ticket.Id));

@@ -101,6 +101,16 @@ export const postAction = (ticketId: string, action: 'dispatch' | 'arrive' | 'tr
     if (!r.ok) throw new Error(`${r.status}`);
   });
 
+/** Manual triage override — dispatcher is the final gate. Reason is mandatory. */
+export const postOverride = (ticketId: string, kind: 'promote' | 'reject', reason: string) =>
+  fetch(`/api/tickets/${ticketId}/actions/${kind}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`${r.status}`);
+  });
+
 export const postOutcome = (ticketId: string, outcome: TicketOutcome) =>
   fetch(`/api/tickets/${ticketId}/actions/outcome`, {
     method: 'POST',
