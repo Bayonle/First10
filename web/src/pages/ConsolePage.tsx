@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { divIcon } from 'leaflet';
 import { useMemo, useState } from 'react';
-import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet';
 import {
+  fetchCorridor,
   dispositionLabel,
   evidenceLabel,
   fetchDeadLetters,
@@ -19,6 +20,7 @@ import {
   type TicketListItem,
   type TimelineEntryDto,
 } from '../api';
+import { expresswaySegments } from '../corridor';
 import { useConsoleHub } from '../useConsoleHub';
 
 // Severity chrome: High is the loudest thing in the room (red), Medium amber, Low cool gray.
@@ -240,6 +242,50 @@ function timeAgo(iso: string) {
 
 // ---- Map ----
 
+/**
+ * The enforced-geofence band: centerline offset ±bufferKm using the SAME
+ * equirectangular projection as the backend's CorridorGeofence, so what the
+ * dispatcher sees shaded is what Stage 0 actually checks.
+ */
+function bufferBand(
+  centerline: { lat: number; lng: number }[],
+  bufferKm: number,
+): [number, number][] {
+  if (centerline.length < 2) return [];
+  const R = 6371;
+  const rad = Math.PI / 180;
+  const cosLat = Math.cos(6.7 * rad);
+  const proj = (p: { lat: number; lng: number }) => [p.lng * cosLat * rad * R, p.lat * rad * R];
+  const unproj = (x: number, y: number): [number, number] => [y / (rad * R), x / (cosLat * rad * R)];
+
+  const pts = centerline.map(proj);
+  const left: [number, number][] = [];
+  const right: [number, number][] = [];
+  for (let i = 0; i < pts.length; i++) {
+    // Vertex normal = normalized average of adjacent segment normals.
+    let nx = 0;
+    let ny = 0;
+    if (i > 0) {
+      const [dx, dy] = [pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]];
+      const len = Math.hypot(dx, dy) || 1;
+      nx += -dy / len;
+      ny += dx / len;
+    }
+    if (i < pts.length - 1) {
+      const [dx, dy] = [pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]];
+      const len = Math.hypot(dx, dy) || 1;
+      nx += -dy / len;
+      ny += dx / len;
+    }
+    const len = Math.hypot(nx, ny) || 1;
+    nx /= len;
+    ny /= len;
+    left.push(unproj(pts[i][0] + nx * bufferKm, pts[i][1] + ny * bufferKm));
+    right.push(unproj(pts[i][0] - nx * bufferKm, pts[i][1] - ny * bufferKm));
+  }
+  return [...left, ...right.reverse()];
+}
+
 function FlyTo({ target }: { target: [number, number] | null }) {
   const map = useMap();
   if (target) map.flyTo(target, Math.max(map.getZoom(), 13), { duration: 0.6 });
@@ -260,6 +306,12 @@ function CorridorMap({
   );
   const selected = located.find((t) => t.id === selectedId);
 
+  const corridor = useQuery({ queryKey: ['corridor'], queryFn: fetchCorridor, staleTime: Infinity });
+  const band = useMemo(
+    () => (corridor.data ? bufferBand(corridor.data.centerline, corridor.data.bufferKm) : []),
+    [corridor.data],
+  );
+
   return (
     <MapContainer
       center={corridorCenter}
@@ -271,6 +323,30 @@ function CorridorMap({
       <TileLayer
         url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      />
+      {/* Enforced geofence band (from triage config) — reports pinned outside this get flagged */}
+      {band.length > 0 && (
+        <Polygon
+          positions={band}
+          pathOptions={{
+            color: '#4f7fff',
+            weight: 1,
+            dashArray: '6 5',
+            opacity: 0.45,
+            fillColor: '#4f7fff',
+            fillOpacity: 0.07,
+            interactive: false,
+          }}
+        />
+      )}
+      {/* The expressway itself (OSM geometry, display-only): soft glow + crisp core */}
+      <Polyline
+        positions={expresswaySegments}
+        pathOptions={{ color: '#7da2e8', weight: 7, opacity: 0.18, interactive: false }}
+      />
+      <Polyline
+        positions={expresswaySegments}
+        pathOptions={{ color: '#8fb0ea', weight: 2, opacity: 0.85, interactive: false }}
       />
       {located.map((t) => {
         const isSel = t.id === selectedId;

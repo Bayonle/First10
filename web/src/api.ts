@@ -176,6 +176,15 @@ export const fetchFloodState = () =>
 export const fetchDeadLetters = () =>
   fetch('/api/system/dead-letters').then((r) => json<{ count: number | null }>(r));
 
+export interface CorridorDto {
+  bufferKm: number;
+  centerline: { lat: number; lng: number }[];
+}
+
+/** The ENFORCED geofence from triage config — the map draws exactly what Stage 0 checks. */
+export const fetchCorridor = () =>
+  fetch('/api/system/corridor').then((r) => json<CorridorDto>(r));
+
 export const fetchConversation = (senderId: string) =>
   fetch(`/api/local-chat/${encodeURIComponent(senderId)}/timeline`).then((r) =>
     json<ConversationEntryDto[]>(r),

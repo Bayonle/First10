@@ -27,6 +27,18 @@ public class SystemController(First10DbContext db, TriageOptions options) : Cont
     }
 
     /// <summary>
+    /// The ENFORCED corridor geofence (centerline + buffer) straight from triage config —
+    /// the console map draws exactly what Stage 0 checks, so when the FRSC-verified
+    /// waypoints land (M5) the map updates with the config, no frontend change.
+    /// </summary>
+    [HttpGet("corridor")]
+    public object Corridor() => new
+    {
+        bufferKm = options.CorridorBufferKm,
+        centerline = options.CorridorCenterline.Select(p => new { lat = p.Latitude, lng = p.Longitude }),
+    };
+
+    /// <summary>
     /// Dead-lettered envelopes = reports the pipeline gave up on (D-008: never silent).
     /// The console shows a hard red banner whenever this is non-zero; recovery is a
     /// Wolverine dead-letter replay by an engineer.
