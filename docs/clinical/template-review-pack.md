@@ -2,7 +2,7 @@
 
 **For:** Clinical advisor (with R&A Lead)
 **From:** First10 engineering
-**Date:** 24 July 2026 · **Version:** 1.0 for review
+**Date:** 24 July 2026 · **Version:** 1.1 for review (adds source provenance + Q0)
 **Decision needed by:** ~8 August 2026 (soft-launch gate G3 requires an approved library)
 
 ---
@@ -39,6 +39,45 @@ Style constraints (engineering, for consistency): ≤ ~450 characters, plain wor
 short sentences, CAPS only for danger words (NO / DANGER), no medical jargon, nothing
 that requires equipment, behaviour reminders rather than treatment procedures
 (project paper rule R1d).
+
+---
+
+## 1a. Source provenance — you are verifying, not authoring
+
+These drafts are not invented from scratch. Each card's lines trace to published
+doctrine, mapped in the **Provenance** line under each card:
+
+- **NHC §IV** — Nigeria Highway Code, Section IV "First Aid and Casualty Handling"
+  (the official national code, produced under FRSC's aegis):
+  https://www.highwaycode.com.ng/iv-first-aid-and-casualty-handling.html
+- **GRSP** — Global Road Safety Partnership / IFRC, *First Response to Road Crashes:
+  First Aid Saves Lives on the Road* (2023):
+  https://www.grsproadsafety.org/wp-content/uploads/2023/05/EN_FA_RS_manual_webversion.pdf
+- **DEV** — deliberate deviation from or omission of published doctrine, with the
+  reason stated. These are the lines that most need your ruling.
+
+Your review is therefore mostly *verification against doctrine you already know*,
+plus rulings on the flagged deviations.
+
+### Q0 — THE headline conflict: "remove the casualty from danger" vs "do not move"
+
+NHC §IV's first-listed priority is **"remove the casualty from the danger or remove
+the danger from the casualty"**, and it further contemplates trained road users
+giving rescue breaths, applying tourniquets, and evacuating victims to hospital
+themselves. That guidance is written for trained motorists in a no-ambulance
+context.
+
+Our cards deliberately take the opposite default for *untrained, panicking
+bystanders receiving an automated message*: **do NOT move anyone; help is being
+dispatched** (motivated by spinal-injury risk and the fact that First10's entire
+purpose is that help IS coming). This deviation is the single most consequential
+clinical decision in this pack. Please rule explicitly:
+
+☐ Confirm the conservative default (do-not-move, with or without a fire exception — see Q1)
+☐ Align with NHC §IV (cards should instruct moving casualties from danger)
+☐ Other ruling: ______________________________________________
+
+Name: ______________ Date: __________
 
 ---
 
@@ -92,6 +131,8 @@ is about to burn — is the blanket rule still right, or does it need "unless th
 immediate danger like fire"? "Press firmly on the wound" — acceptable without
 glove/HIV caveat? "No food or water" — keep?
 
+**Provenance:** "do not give food or water" — NHC §IV verbatim rule. "Press firmly on the wound with cloth" — NHC §IV (direct pressure) + GRSP. "Do NOT move anyone" — **DEV**: inverts NHC §IV's remove-from-danger priority (see Q0). "Keep yourself safe away from traffic" — GRSP scene-safety first principle.
+
 **Sign-off `rta_generic`:** ☐ Approved as-is ☐ Approved as amended
 Name: ______________ Date: __________ Amendments: ______________________________
 
@@ -118,6 +159,8 @@ from a burning vehicle either way; is silence the right clinical choice here, or
 does this card need an explicit line?). Is "50 steps" the right distance for a
 tanker (vs. much further)? Should tanker get its own card with a larger distance?
 
+**Provenance:** scene evacuation/distance — GRSP (danger-zone principle); NHC §IV supports removing people from danger. "Do not fight the fire" — **DEV**: NHC/GRSP are silent for bystanders; drafted to counter observed corridor behaviour. The 50-step distance — **DEV**: engineering placeholder, no published figure found; please set the number.
+
 **Sign-off `rta_fire`:** ☐ Approved as-is ☐ Approved as amended
 Name: ______________ Date: __________ Amendments: ______________________________
 
@@ -142,6 +185,8 @@ Name: ______________ Date: __________ Amendments: ______________________________
 Note the corridor reality: many okada riders are unhelmeted; the card should not read
 as absurd at a helmetless scene. Suggestion to consider: "If the rider wears a
 helmet, do NOT remove it…".
+
+**Provenance:** helmet non-removal — NHC §IV verbatim principle (code's exception: respiratory/circulatory distress; the card omits the exception for untrained bystanders — **DEV**, please confirm). Bleeding pressure — NHC §IV + GRSP.
 
 **Sign-off `rta_okada`:** ☐ Approved as-is ☐ Approved as amended
 Name: ______________ Date: __________ Amendments: ______________________________
@@ -175,6 +220,8 @@ conflict — if the vehicle IS burning and someone IS trapped, what should a bys
 be told? The draft dodges by repeating the distance rule; please rule on this
 explicitly, it is the hardest scenario on the corridor.
 
+**Provenance:** do-not-pull — extension of NHC §IV's spinal-care rule ("DO NOT LIFT casualty alone", 4–6 trained helpers) to the zero-training case — **DEV** by simplification. Keep-talking reassurance — GRSP (psychological first aid). Crowd restraint — NHC §IV crowd-control rule.
+
 **Sign-off `rta_trapped`:** ☐ Approved as amended ☐ Rejected (key removed)
 Name: ______________ Date: __________ Amendments: ______________________________
 
@@ -206,6 +253,8 @@ Please decide: keep the exception, remove it, or reword it. Scene-protection adv
 (parking a shield vehicle) also creates a secondary-crash risk of its own — is it in
 scope for a bystander message?
 
+**Provenance:** scene protection/warning traffic — GRSP (protect the scene before casualty care). The conditional move exception — **DEV**: a compromise between NHC §IV's remove-from-danger and our do-not-move default; entirely your ruling (see Q0).
+
 **Sign-off `rta_pedestrian`:** ☐ Approved as amended ☐ Rejected (key removed)
 Name: ______________ Date: __________ Amendments: ______________________________
 
@@ -236,6 +285,8 @@ phone-ignites-fuel claim is largely folklore, but if FRSC field doctrine include
 it, consistency may matter more than pedantry — your call. (b) The anti-scooping
 line is a crowd-safety essential on this corridor (documented tanker tragedies) but
 it may reduce compliance from the reporter themselves — keep, soften, or drop?
+
+**Provenance:** distance + ignition-source discipline — GRSP danger-zone principle. Anti-scooping line — **DEV**: no published first-aid source; drafted from documented Nigerian tanker-spill crowd tragedies. Phone question — see card note.
 
 **Sign-off `rta_spill_no_fire`:** ☐ Approved as amended ☐ Rejected (key removed)
 Name: ______________ Date: __________ Amendments: ______________________________
