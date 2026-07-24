@@ -24,6 +24,17 @@ public sealed class TelegramBotApi(HttpClient http, string botToken)
         return doc.RootElement.GetProperty("result").Clone();
     }
 
+    /// <summary>
+    /// Clears any registered webhook. getUpdates returns 409 while a webhook is
+    /// active, so a polling adapter must claim the bot at startup.
+    /// </summary>
+    public async Task DeleteWebhookAsync(CancellationToken ct)
+    {
+        using var response = await http.PostAsJsonAsync(
+            Method("deleteWebhook"), new { drop_pending_updates = false }, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task SendMessageAsync(long chatId, string text, CancellationToken ct)
     {
         using var response = await http.PostAsJsonAsync(

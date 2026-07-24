@@ -235,6 +235,9 @@ else
 var telegramToken = builder.Configuration["Telegram:BotToken"];
 if (!string.IsNullOrWhiteSpace(telegramToken))
 {
+    // Bot API URLs embed the token — HttpClient's info-level request logging would
+    // write the secret into every log line. Warnings and errors only.
+    builder.Logging.AddFilter("System.Net.Http.HttpClient.telegram", LogLevel.Warning);
     builder.Services.AddHttpClient(); // shared factory for the bot client
     builder.Services.AddSingleton(sp => new First10.Infrastructure.Telegram.TelegramBotApi(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram"), telegramToken));

@@ -42,6 +42,20 @@ public sealed class TelegramPollingService(
             return;
         }
 
+        // Claim the bot for polling: getUpdates 409s while any webhook is registered.
+        try
+        {
+            await api.DeleteWebhookAsync(stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception e)
+        {
+            logger.LogWarning(e, "deleteWebhook failed; polling may 409 until resolved");
+        }
+
         logger.LogInformation("Telegram adapter active (long polling)");
         long offset = 0;
         var attemptsForCurrent = 0;
