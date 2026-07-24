@@ -70,6 +70,34 @@ public static class RunExtractionHandler
             }
         }
 
+        // ---- Landmark-inferred location: the corridor's natural addressing ("accident
+        // for Kara bridge"). Approximate by construction — a real pin ALWAYS outranks
+        // it (never overwrite Pin), it never triggers corroboration merges, and the
+        // map renders it visibly approximate. It DOES count as located: FRSC can roll
+        // on a landmark, and a pinless reporter shouldn't be nagged forever.
+        if (result.LandmarkKey is not null
+            && ticket.LocationSource != LocationSource.Pin
+            && ticket.LocationLandmark != result.LandmarkKey
+            && First10.Domain.Triage.CorridorLandmarks.ByKey(result.LandmarkKey) is { } landmark)
+        {
+            ticket.LocationLat = landmark.Lat;
+            ticket.LocationLng = landmark.Lng;
+            ticket.LocationSource = LocationSource.LandmarkInferred;
+            ticket.LocationLandmark = landmark.Key;
+            ticket.LocationResolvedAt ??= DateTimeOffset.UtcNow;
+            db.TimelineEntries.Add(new TimelineEntry
+            {
+                Id = Guid.NewGuid(),
+                TicketId = ticket.Id,
+                ConversationId = command.ConversationId,
+                Direction = TimelineDirection.System,
+                Kind = TimelineEntryKind.StatusChange,
+                Text = $"Location inferred from landmark: ≈ {landmark.Name} (±{landmark.RadiusKm:0.#}km — a pin will refine it)",
+                OccurredAt = DateTimeOffset.UtcNow,
+            });
+            IngestInboundMessageHandler.MaybePromote(ticket, db, command.ConversationId);
+        }
+
         ticket.Severity = result.Severity;
         ticket.CasualtyEstimate = result.CasualtyEstimate;
         ticket.ExtractorVersion = result.ExtractorVersion;

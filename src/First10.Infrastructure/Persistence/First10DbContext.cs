@@ -34,6 +34,7 @@ public class First10DbContext(DbContextOptions<First10DbContext> options) : DbCo
             e.Property(x => x.Summary).HasMaxLength(2048);
             e.Property(x => x.Language).HasMaxLength(32);
             e.Property(x => x.Flags).HasMaxLength(1024);
+            e.Property(x => x.LocationLandmark).HasMaxLength(64);
             e.Property(x => x.ClassifierVersion).HasMaxLength(128);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.CreatedAt);

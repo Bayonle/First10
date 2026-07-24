@@ -265,6 +265,18 @@ Additional signals: corridor geofence (flag, don't drop), cross-modal consistenc
 
 ---
 
+## D-021 — Landmark-inferred locations: the corridor's addressing system, below pin trust
+
+**Date:** 2026-07-24 · **Status:** Accepted
+
+**Context.** Reporters name places, not coordinates ("accident for Kara bridge"), and many never manage a pin mid-panic. FRSC dispatches by landmark anyway. Before this, a pinless text+photo report sat un-promotable at "awaiting location pin" forever.
+
+**Decision.** A curated corridor gazetteer (11 landmarks Berger→Mowe with aliases, coordinates, radii — PROVISIONAL until the FRSC waypoint session verifies them). Extraction SELECTS a `landmark_key` from the closed list (same safety pattern as clinical templates — never invented coordinates; unknown output → null; heuristic fallback does alias matching). An inferred location: counts as located (promotion + no pin-nagging), carries `LocationSource.LandmarkInferred` + the key, renders visibly approximate (amber ≈ pill; hollow dashed map marker + 1km halo). Hard trust boundaries: a real pin ALWAYS replaces the inference (never the reverse), and corroboration merges consider pin-sourced locations only — a landmark spans ~1km and Kara can host two distinct crashes at once; merging on approximate geography would fuse them. Human dispatchers merge judgment-wise.
+
+**Consequences.** "Tanker for Ibafo" + photo is now a promotable, mappable, dispatchable ticket with zero pins. Verified live: LLM selected `ibafo`, ticket promoted, dashed marker on-corridor. Alias discipline matters ("punch" alone would match pidgin violence — aliases must be unambiguous in crash prose; tested). Gazetteer verification joins the FRSC waypoint meeting agenda.
+
+---
+
 ## Template for new entries
 
 ```

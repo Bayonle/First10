@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { divIcon } from 'leaflet';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet';
+import { Circle, MapContainer, Marker, Polygon, Polyline, TileLayer, useMap } from 'react-leaflet';
 import {
   fetchCorridor,
   fetchKpis,
@@ -344,7 +344,14 @@ function QueueCard({
         {t.reporterCount > 1 && (
           <span className="stamp stamp-tint bg-act-tint text-act">{t.reporterCount} reporters</span>
         )}
-        {t.locationResolvedAt && <span className="stamp text-ok">located</span>}
+        {t.locationResolvedAt &&
+          (t.locationSource === 2 ? (
+            <span className="stamp text-warn" title="Location inferred from a named landmark — approximate">
+              ≈ {t.locationLandmark ?? 'landmark'}
+            </span>
+          ) : (
+            <span className="stamp text-ok">located</span>
+          ))}
         {t.dispatch > 0 && (
           <span className="stamp stamp-solid bg-act">
             {['', 'dispatched', 'on scene', 'transported'][t.dispatch]}
@@ -483,6 +490,7 @@ function CorridorMap({
       {located.map((t) => {
         const isSel = t.id === selectedId;
         const color = sevDot[t.severity ?? 0];
+        const inferred = t.locationSource === 2;
         return (
           <Marker
             key={t.id}
@@ -491,13 +499,34 @@ function CorridorMap({
             icon={divIcon({
               className: '',
               iconSize: [isSel ? 26 : 16, isSel ? 26 : 16],
-              html: `<div style="width:100%;height:100%;border-radius:9999px;background:${color};
-                border:${isSel ? '4px solid rgba(242,92,84,0.35)' : '2px solid rgba(0,0,0,0.55)'};
-                box-shadow:0 0 ${isSel ? '14px' : '6px'} ${color}66;"></div>`,
+              html: inferred
+                ? `<div style="width:100%;height:100%;border-radius:9999px;background:transparent;
+                    border:2px dashed ${color};box-shadow:0 0 ${isSel ? '14px' : '6px'} ${color}55;"></div>`
+                : `<div style="width:100%;height:100%;border-radius:9999px;background:${color};
+                    border:${isSel ? '4px solid rgba(242,92,84,0.35)' : '2px solid rgba(0,0,0,0.55)'};
+                    box-shadow:0 0 ${isSel ? '14px' : '6px'} ${color}66;"></div>`,
             })}
           />
         );
       })}
+      {/* Approximation halos: an inferred landmark is a stretch of road, not a point */}
+      {located
+        .filter((t) => t.locationSource === 2)
+        .map((t) => (
+          <Circle
+            key={`halo-${t.id}`}
+            center={[t.locationLat!, t.locationLng!]}
+            radius={1000}
+            pathOptions={{
+              color: sevDot[t.severity ?? 0],
+              weight: 1,
+              dashArray: '4 5',
+              opacity: 0.5,
+              fillOpacity: 0.05,
+              interactive: false,
+            }}
+          />
+        ))}
       <FlyTo target={selected ? [selected.locationLat!, selected.locationLng!] : null} />
     </MapContainer>
   );
@@ -577,7 +606,9 @@ function DetailPanel({ ticket, onClose }: { ticket: TicketListItem; onClose: () 
       <h2 className="font-display mt-2 text-[1.3rem] leading-tight font-extrabold">{ticket.summary}</h2>
       <div className="mt-1 font-mono text-[0.78rem] text-ink-faint">
         {ticket.locationLat !== null
-          ? `${ticket.locationLat.toFixed(4)}, ${ticket.locationLng!.toFixed(4)}`
+          ? ticket.locationSource === 2
+            ? `≈ ${ticket.locationLandmark} (inferred from report — approximate)`
+            : `${ticket.locationLat.toFixed(4)}, ${ticket.locationLng!.toFixed(4)}`
           : 'no location pin yet'}
         {' · '}
         {dispositionLabel[ticket.disposition]} · {evidenceLabel[ticket.evidence]}

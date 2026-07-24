@@ -24,7 +24,11 @@ public sealed record ExtractionResult(
     string ExtractorVersion,
     /// <summary>False when the photo clearly does not show what the narrative claims —
     /// caps disposition at Review + flags, never drops (D-008).</summary>
-    bool PhotoMatchesNarrative = true);
+    bool PhotoMatchesNarrative = true,
+    /// <summary>Corridor gazetteer key SELECTED from the closed landmark list when the
+    /// narrative names a place ("accident for Kara bridge") — never invented
+    /// coordinates. Null when no landmark is confidently named.</summary>
+    string? LandmarkKey = null);
 
 public interface IIncidentExtractor
 {

@@ -67,6 +67,9 @@ export interface TicketListItem {
   locationResolvedAt: string | null;
   locationLat: number | null;
   locationLng: number | null;
+  /** 0 none · 1 pin · 2 landmark-inferred (approximate — never pin-level trust) */
+  locationSource: 0 | 1 | 2;
+  locationLandmark: string | null;
   dispatch: DispatchState;
   dispatchedAt: string | null;
   arrivedAt: string | null;

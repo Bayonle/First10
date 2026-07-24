@@ -221,6 +221,7 @@ public static class IngestInboundMessageHandler
             ticket.LocationResolvedAt = now;
             ticket.LocationLat = newPin.Latitude;
             ticket.LocationLng = newPin.Longitude;
+            ticket.LocationSource = LocationSource.Pin;
         }
 
         // Every report gets an immediate response (paper §1.2.5).
@@ -278,8 +279,11 @@ public static class IngestInboundMessageHandler
         // an Abuja mis-pin stuck forever, correction silently discarded) ----
         if (message.Kind == InboundKind.LocationPin && ticket.LocationResolvedAt is not null && message.Location is { } correctedPin)
         {
+            var upgradedFromLandmark = ticket.LocationSource == LocationSource.LandmarkInferred;
             ticket.LocationLat = correctedPin.Latitude;
             ticket.LocationLng = correctedPin.Longitude;
+            ticket.LocationSource = LocationSource.Pin;
+            ticket.LocationLandmark = null;
             var nowOutside = !CorridorGeofence.IsNearCorridor(
                 correctedPin, options.CorridorCenterline, options.CorridorBufferKm);
             var correctionFlags = (ticket.Flags?.Split(',', StringSplitOptions.RemoveEmptyEntries) ?? []).ToHashSet();
@@ -289,7 +293,9 @@ public static class IngestInboundMessageHandler
                 ticket.Flags = correctionFlags.Count > 0 ? string.Join(',', correctionFlags.OrderBy(f => f)) : null;
             }
             AppendSystemNote(db, ticket.Id, conversation.Id,
-                $"Location updated by reporter → ({correctedPin.Latitude:F5}, {correctedPin.Longitude:F5})"
+                (upgradedFromLandmark
+                    ? $"Pin received — replaces inferred landmark location → ({correctedPin.Latitude:F5}, {correctedPin.Longitude:F5})"
+                    : $"Location updated by reporter → ({correctedPin.Latitude:F5}, {correctedPin.Longitude:F5})")
                 + (nowOutside ? " [outside corridor]" : ""));
         }
 
@@ -299,6 +305,8 @@ public static class IngestInboundMessageHandler
             ticket.LocationResolvedAt = now;
             ticket.LocationLat = pin.Latitude;
             ticket.LocationLng = pin.Longitude;
+            ticket.LocationSource = LocationSource.Pin;
+            ticket.LocationLandmark = null;
             AppendSystemNote(db, ticket.Id, conversation.Id, "Location pin received — location resolved");
 
             // The pin may reveal this is the SAME incident another reporter already
@@ -401,6 +409,10 @@ public static class IngestInboundMessageHandler
         var candidates = await db.Tickets
             .Where(t => (t.Status == TicketStatus.Provisional || t.Status == TicketStatus.Promoted
                     || t.Status == TicketStatus.Closed)
+                // Pin-sourced locations ONLY: a landmark-inferred location spans ~1km
+                // and Kara is exactly where two different crashes can coexist — merging
+                // on approximate geography would fuse distinct incidents.
+                && t.LocationSource == LocationSource.Pin
                 && t.LocationLat != null && t.UpdatedAt >= windowStart)
             .ToListAsync(ct);
 
@@ -473,6 +485,8 @@ public static class IngestInboundMessageHandler
         if (survivor.LocationResolvedAt is null && merged.LocationResolvedAt is not null)
         {
             survivor.LocationResolvedAt = merged.LocationResolvedAt;
+            survivor.LocationSource = merged.LocationSource;
+            survivor.LocationLandmark = merged.LocationLandmark;
             survivor.LocationLat = merged.LocationLat;
             survivor.LocationLng = merged.LocationLng;
         }
@@ -499,7 +513,7 @@ public static class IngestInboundMessageHandler
     }
 
     /// <summary>Promotion rule (D-007): (photo OR corroboration) AND location resolved.</summary>
-    private static void MaybePromote(IncidentTicket ticket, First10DbContext db, Guid conversationId)
+    internal static void MaybePromote(IncidentTicket ticket, First10DbContext db, Guid conversationId)
     {
         if (ticket.Status == TicketStatus.Provisional
             && ticket.LocationResolvedAt is not null

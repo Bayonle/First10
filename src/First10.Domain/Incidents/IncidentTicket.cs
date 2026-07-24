@@ -74,6 +74,14 @@ public class IncidentTicket
     public double? LocationLat { get; set; }
     public double? LocationLng { get; set; }
 
+    /// <summary>Where the coordinates came from — an inferred landmark is NEVER treated
+    /// with pin-level trust (no corroboration merges; visibly approximate on the map;
+    /// a real pin always replaces it).</summary>
+    public LocationSource LocationSource { get; set; }
+
+    /// <summary>Gazetteer key when the location was inferred from a named landmark.</summary>
+    public string? LocationLandmark { get; set; }
+
     // ---- M3: dispatch loop-closure (paper §1.4; R1e: driven ONLY by explicit
     // dispatcher actions — these fields are set exclusively by DispatcherActionHandler) ----
     public DispatchState Dispatch { get; set; }
@@ -117,4 +125,12 @@ public enum TicketOutcome
     Real = 0,
     False = 1,
     Unverifiable = 2,
+}
+
+public enum LocationSource
+{
+    None = 0,
+    Pin = 1,
+    /// <summary>Approximate: extraction matched a corridor landmark in the report text.</summary>
+    LandmarkInferred = 2,
 }

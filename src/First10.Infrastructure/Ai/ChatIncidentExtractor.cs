@@ -20,8 +20,9 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
         pre-blurred) and the reporter's narrative (English, Nigerian Pidgin, or Yoruba).
 
         Corridor landmarks (normalize spellings/mis-transcriptions to these):
-        Berger interchange, Kara bridge (often heard as "Carra"/"Cara"), OPIC estate,
-        Ibafo, Mowe, the toll gate. In Pidgin, "motor" means car/vehicle, NOT motorbike;
+        Berger interchange, Kara bridge (often heard as "Carra"/"Cara"), Long bridge,
+        OPIC estate, Arepo, Warewa, Magboro (Punch flyover), Ibafo, Asese, Redemption
+        Camp, Mowe/Ofada. In Pidgin, "motor" means car/vehicle, NOT motorbike;
         a motorcycle is "okada" or "bike".
 
         Fields:
@@ -36,6 +37,11 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
           write safety instructions yourself.
         - photo_matches_narrative: false if the photo clearly does not show what the
           narrative describes (unrelated scene). True when plausible or no photo.
+        - landmark_key: which corridor landmark the narrative places the incident at,
+          exactly one of "berger" | "kara" | "longbridge" | "opic" | "arepo" |
+          "warewa" | "magboro" | "ibafo" | "asese" | "redemption" | "mowe", or null.
+          You SELECT from this closed list — never guess coordinates, never pick a
+          landmark that is not clearly named or implied. Null when unsure.
         - dispatcher_summary: ONE line, <=120 chars, for a corridor dispatcher.
           Lead with what and where. Example: "Trailer/danfo collision at Kara bridge
           inward Lagos, ~3 injured, 1 trapped".
@@ -81,7 +87,9 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
                 ? (input.Narrative ?? "RTA report — see timeline")
                 : wire.DispatcherSummary,
             Version,
-            PhotoMatchesNarrative: wire.PhotoMatchesNarrative ?? true);
+            PhotoMatchesNarrative: wire.PhotoMatchesNarrative ?? true,
+            // Closed-list validation: anything not in the gazetteer becomes null.
+            LandmarkKey: First10.Domain.Triage.CorridorLandmarks.ByKey(wire.LandmarkKey)?.Key);
     }
 
     private static SeverityTier MapSeverity(string? value) => value?.ToLowerInvariant() switch
@@ -97,5 +105,6 @@ public sealed class ChatIncidentExtractor(IChatClient chatClient) : IIncidentExt
         string? CasualtyEstimate,
         string? TemplateKey,
         bool? PhotoMatchesNarrative,
-        string? DispatcherSummary);
+        string? DispatcherSummary,
+        string? LandmarkKey);
 }

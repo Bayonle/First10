@@ -1,4 +1,5 @@
 using First10.Domain.Abstractions;
+using First10.Domain.Triage;
 using First10.Domain.Incidents;
 
 namespace First10.Application.Triage;
@@ -41,6 +42,7 @@ public sealed class HeuristicIncidentExtractor : IIncidentExtractor
             CasualtyEstimate: null, // keyword guessing casualty counts would be noise
             templateKey,
             summary,
-            Version));
+            Version,
+            LandmarkKey: CorridorLandmarks.Match(input.Narrative)?.Key));
     }
 }
