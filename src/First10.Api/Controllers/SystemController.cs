@@ -39,6 +39,33 @@ public class SystemController(First10DbContext db, TriageOptions options) : Cont
     };
 
     /// <summary>
+    /// Dev-only: clears the dead-letter table after investigation. A permanently red
+    /// banner about historic, root-caused failures is alarm fatigue — the signal only
+    /// works if it returns to silence once handled. In pilot, clearing follows the
+    /// ops runbook (replay first if the envelopes are real reports); this endpoint is
+    /// unreachable outside Development (D-006 gate).
+    /// </summary>
+    [HttpPost("dead-letters/purge")]
+    [First10.Api.Filters.DevelopmentOnly]
+    public async Task<ActionResult<object>> PurgeDeadLetters(CancellationToken ct)
+    {
+        foreach (var table in new[]
+                 { "wolverine_dead_letters", "public.wolverine_dead_letters", "wolverine.wolverine_dead_letters" })
+        {
+            try
+            {
+                var deleted = await db.Database.ExecuteSqlRawAsync($"DELETE FROM {table}", ct);
+                return Ok(new { deleted });
+            }
+            catch (Exception)
+            {
+                // try the next location
+            }
+        }
+        return Ok(new { deleted = 0 });
+    }
+
+    /// <summary>
     /// Dead-lettered envelopes = reports the pipeline gave up on (D-008: never silent).
     /// The console shows a hard red banner whenever this is non-zero; recovery is a
     /// Wolverine dead-letter replay by an engineer.
