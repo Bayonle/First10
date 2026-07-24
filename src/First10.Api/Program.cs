@@ -196,6 +196,9 @@ builder.Services.AddSingleton(new MediaUrlSigner(
 // AI services: LLM-backed behind IChatClient when a key is configured (D-003),
 // heuristic/null fallbacks otherwise so the pipeline runs offline (dev/CI/tests).
 var openAiKey = builder.Configuration["OpenAI:ApiKey"];
+// Ops visibility: which AI branch this process runs is a fact worth one log line —
+// a silently-heuristic pilot would look "fine" while degrading triage quality.
+Console.WriteLine($"[boot] AI services: {(string.IsNullOrWhiteSpace(openAiKey) ? "HEURISTIC (no OpenAI key in config)" : $"LLM-backed (key present, {openAiKey.Length} chars)")} · env={builder.Environment.EnvironmentName}");
 if (!string.IsNullOrWhiteSpace(openAiKey))
 {
     var openAi = new OpenAIClient(openAiKey);
