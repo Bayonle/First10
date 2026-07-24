@@ -42,6 +42,24 @@ no code change. Set a hard monthly spend cap on the OpenAI account before use
 All LLM calls sit behind heuristic-fallback decorators: if OpenAI is down, rate-limited,
 or returns garbage, triage degrades to keyword heuristics and no report is lost (D-008).
 
+## Enabling the Telegram channel (real phone testing, no Meta approval needed)
+
+1. In Telegram, talk to **@BotFather** → `/newbot` → pick a name and username. It
+   replies with a bot token (`123456:ABC-…`).
+2. ```sh
+   cd src/First10.Api
+   dotnet user-secrets set "Telegram:BotToken" "123456:ABC-…"
+   ```
+3. Restart the stack. The log line `Telegram adapter active (long polling)` confirms it.
+4. Open your bot in Telegram and report a crash — text, photo, voice note, video,
+   location pin all work. Replies (challenges, micro-instructions, loop closures)
+   arrive in the same chat; the incident appears in the console like any other.
+
+Long polling means no public URL, webhook, or certificate — it works from a laptop.
+Media goes through the same D-009 gate as every channel: photos blurred, videos
+become blurred contact sheets, before anything is persisted. Without a token the
+channel simply doesn't exist.
+
 ## Security & privacy configuration (M4)
 
 Everything privacy-critical is structural — these keys just parameterize it:

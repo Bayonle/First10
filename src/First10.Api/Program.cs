@@ -46,6 +46,10 @@ builder.Host.UseWolverine(opts =>
         .RetryWithCooldown(transientRetryLadder);
     opts.OnException<Npgsql.NpgsqlException>()
         .RetryWithCooldown(transientRetryLadder);
+    // Channel-send blips (Telegram/WhatsApp API hiccups) must not dead-letter a
+    // loop-closure or instruction — retry with the same patience.
+    opts.OnException<HttpRequestException>()
+        .RetryWithCooldown(transientRetryLadder);
 
     // Handlers live in First10.Application, not this assembly.
     opts.Discovery.IncludeAssembly(typeof(IngestInboundMessageHandler).Assembly);
@@ -222,6 +226,24 @@ else
     builder.Services.AddSingleton<IIncidentExtractor, HeuristicIncidentExtractor>();
     builder.Services.AddSingleton<ITimelineSummarizer, HeuristicTimelineSummarizer>();
     builder.Services.AddSingleton<ITranscriber, NullTranscriber>();
+}
+
+// ---- Telegram channel adapter ----
+// Active when a bot token is configured (user-secrets in dev, vault in pilot).
+// Long polling: no public URL or webhook needed — works from a laptop and the
+// pilot VM alike. Without a token the channel simply doesn't exist.
+var telegramToken = builder.Configuration["Telegram:BotToken"];
+if (!string.IsNullOrWhiteSpace(telegramToken))
+{
+    builder.Services.AddHttpClient(); // shared factory for the bot client
+    builder.Services.AddSingleton(sp => new First10.Infrastructure.Telegram.TelegramBotApi(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram"), telegramToken));
+    builder.Services.AddSingleton<First10.Domain.Abstractions.IOutboundChannelSender,
+        First10.Infrastructure.Telegram.TelegramOutboundSender>();
+    if (!builder.Environment.IsEnvironment("Testing"))
+    {
+        builder.Services.AddHostedService<First10.Api.Telegram.TelegramPollingService>();
+    }
 }
 
 const string SpaCors = "spa";
