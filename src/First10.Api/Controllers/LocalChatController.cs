@@ -115,6 +115,51 @@ public class LocalChatController(IMessageBus bus) : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Dev-only clean slate: deletes ALL Local-channel data (conversations, their
+    /// timeline entries, tickets with no real-channel contributions, media rows,
+    /// local reporter reputations). Real channels (Telegram/WhatsApp) are untouched —
+    /// a ticket with even one real-channel message survives. Audit tables are never
+    /// deleted. Everything purged is synthetic and regenerable via scenarios.
+    /// </summary>
+    [HttpPost("purge")]
+    public async Task<IActionResult> PurgeLocalData([FromServices] First10DbContext db, CancellationToken ct)
+    {
+        var localConversationIds = await db.Conversations
+            .Where(c => c.Channel == ChannelKind.Local)
+            .Select(c => c.Id)
+            .ToListAsync(ct);
+
+        var candidateTicketIds = await db.TimelineEntries
+            .Where(e => e.TicketId != null && localConversationIds.Contains(e.ConversationId))
+            .Select(e => e.TicketId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // Safety: only tickets whose EVERY contribution is Local die with the purge.
+        var protectedTicketIds = await db.TimelineEntries
+            .Where(e => e.TicketId != null && candidateTicketIds.Contains(e.TicketId.Value)
+                        && !localConversationIds.Contains(e.ConversationId))
+            .Select(e => e.TicketId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
+        var doomedTicketIds = candidateTicketIds.Except(protectedTicketIds).ToList();
+
+        var entries = await db.TimelineEntries
+            .Where(e => localConversationIds.Contains(e.ConversationId)
+                        || (e.TicketId != null && doomedTicketIds.Contains(e.TicketId.Value)))
+            .ExecuteDeleteAsync(ct);
+        await db.MediaAssets
+            .Where(m => m.TicketId != null && doomedTicketIds.Contains(m.TicketId.Value))
+            .ExecuteDeleteAsync(ct);
+        var tickets = await db.Tickets.Where(t => doomedTicketIds.Contains(t.Id)).ExecuteDeleteAsync(ct);
+        var conversations = await db.Conversations
+            .Where(c => c.Channel == ChannelKind.Local).ExecuteDeleteAsync(ct);
+        await db.ReporterReputations.Where(r => r.Channel == ChannelKind.Local).ExecuteDeleteAsync(ct);
+
+        return Ok(new { conversations, tickets, entries, protectedTickets = protectedTicketIds.Count });
+    }
+
     /// <summary>The cockpit's conversation view: both directions, for one persona.</summary>
     [HttpGet("{senderId}/timeline")]
     public async Task<IReadOnlyList<ConversationEntryDto>> ConversationTimeline(

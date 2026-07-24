@@ -187,7 +187,7 @@ export default function ConsolePage() {
             className="w-full rounded-lg border border-hairline bg-paper-raised px-3 py-2 text-[0.85rem] placeholder:text-ink-faint focus:border-hairline-strong focus:outline-none"
           />
         </div>
-        <div className="flex items-center gap-1.5 px-3 pb-3">
+        <div className="flex flex-wrap items-center gap-1.5 px-3 pb-3">
           {(['all', 2, 1, 0] as const).map((f) => (
             <button
               key={String(f)}
@@ -197,13 +197,23 @@ export default function ConsolePage() {
               {f === 'all' ? 'All' : { 2: 'High', 1: 'Med', 0: 'Low' }[f]}
             </button>
           ))}
-          <button
-            className="seg-btn ml-auto"
-            title={sort === 'priority' ? 'Actionability order — click for newest first' : 'Newest first — click for priority order'}
-            onClick={() => setSort(sort === 'priority' ? 'newest' : 'priority')}
-          >
-            {sort === 'priority' ? '⇅ Priority' : '⇅ Newest'}
-          </button>
+          <span className="ml-auto flex items-center gap-1">
+            <span className="text-[0.62rem] font-semibold uppercase tracking-widest text-ink-faint">Sort</span>
+            <button
+              className={`seg-btn ${sort === 'priority' ? 'seg-btn-on' : ''}`}
+              title="Actionability: needs-decision first, most urgent, oldest-waiting"
+              onClick={() => setSort('priority')}
+            >
+              Priority
+            </button>
+            <button
+              className={`seg-btn ${sort === 'newest' ? 'seg-btn-on' : ''}`}
+              title="Most recent report first"
+              onClick={() => setSort('newest')}
+            >
+              Newest
+            </button>
+          </span>
           <button
             className="seg-btn"
             title={muted ? 'Chime muted — click to unmute' : 'Audio chime on new incidents — click to mute'}
