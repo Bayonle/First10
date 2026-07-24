@@ -74,27 +74,84 @@ export default function ConsolePage() {
   const kpiQuery = useQuery({ queryKey: ['kpis'], queryFn: fetchKpis, refetchInterval: 30_000 });
   const kpis = kpiQuery.data ?? { active: 0, highSev: 0, unassigned: 0, oldestWaitMinutes: 0 };
 
-  // New-incident toasts: the first fetch seeds the known set silently (no toast storm
-  // on page load); afterwards any unseen id that is genuinely recent gets announced.
-  const [toasts, setToasts] = useState<{ id: string; summary: string; severity: SeverityTier | null }[]>([]);
+  // Audio ping: chimes are SYNTHESIZED (Web Audio, no asset). Browsers block sound
+  // until the first user gesture, so the context primes on first pointerdown and the
+  // chime stays politely silent before that. Mute persists across sessions.
+  const [muted, setMuted] = useState(() => localStorage.getItem('first10-chime-muted') === '1');
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
+  const audioCtx = useRef<AudioContext | null>(null);
+  useEffect(() => {
+    const prime = () => {
+      audioCtx.current ??= new AudioContext();
+      void audioCtx.current.resume();
+    };
+    window.addEventListener('pointerdown', prime, { once: true });
+    return () => window.removeEventListener('pointerdown', prime);
+  }, []);
+  const chime = (urgent: boolean) => {
+    const ctx = audioCtx.current;
+    if (mutedRef.current || !ctx || ctx.state !== 'running') return;
+    const t0 = ctx.currentTime;
+    const notes: [number, number][] = urgent
+      ? [[1174.66, 0], [1567.98, 0.14], [1174.66, 0.28], [1567.98, 0.42]] // insistent D6/G6 repeat
+      : [[880, 0], [1174.66, 0.16]]; // gentle A5→D6
+    for (const [freq, start] of notes) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, t0 + start);
+      gain.gain.linearRampToValueAtTime(urgent ? 0.5 : 0.3, t0 + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + start + 0.45);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0 + start);
+      osc.stop(t0 + start + 0.5);
+    }
+  };
+
+  // New-incident + escalated-to-HIGH announcements. The first fetch seeds the known
+  // sets silently (no storm on page load). Severity is assigned by async extraction
+  // seconds AFTER creation, so escalation is tracked separately from arrival —
+  // otherwise a "new AND high" chime would almost never fire.
+  const [toasts, setToasts] = useState<
+    { id: string; summary: string; severity: SeverityTier | null; kind: 'new' | 'high' }[]
+  >([]);
   const knownIds = useRef<Set<string> | null>(null);
+  const sevMap = useRef(new Map<string, SeverityTier | null>());
   useEffect(() => {
     if (!tickets.data) return;
     if (knownIds.current === null) {
       knownIds.current = new Set(tickets.data.map((t) => t.id));
+      for (const t of tickets.data) sevMap.current.set(t.id, t.severity);
       return;
     }
+
     const fresh = tickets.data.filter((t) => !knownIds.current!.has(t.id));
     for (const t of fresh) knownIds.current!.add(t.id);
-    const announce = fresh.filter((t) => Date.now() - +new Date(t.createdAt) < 5 * 60_000);
+    const arrivals = fresh.filter((t) => Date.now() - +new Date(t.createdAt) < 5 * 60_000);
+
+    // Existing (open) tickets whose severity just became HIGH.
+    const escalated = tickets.data.filter(
+      (t) =>
+        !fresh.includes(t) &&
+        t.severity === 2 &&
+        sevMap.current.get(t.id) !== 2 &&
+        sevMap.current.has(t.id) &&
+        (t.status === 0 || t.status === 1),
+    );
+    for (const t of tickets.data) sevMap.current.set(t.id, t.severity);
+
+    const announce = [
+      ...arrivals.map((t) => ({ id: t.id, summary: t.summary, severity: t.severity, kind: 'new' as const })),
+      ...escalated.map((t) => ({ id: t.id, summary: t.summary, severity: t.severity, kind: 'high' as const })),
+    ];
     if (announce.length === 0) return;
-    setToasts((prev) => [
-      ...prev,
-      ...announce.map((t) => ({ id: t.id, summary: t.summary, severity: t.severity })),
-    ]);
+    setToasts((prev) => [...prev.filter((x) => !announce.some((a) => a.id === x.id)), ...announce]);
     for (const t of announce) {
       setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== t.id)), 8_000);
     }
+    chime(announce.some((a) => a.kind === 'high' || a.severity === 2));
   }, [tickets.data]);
 
   return (
@@ -147,6 +204,17 @@ export default function ConsolePage() {
           >
             {sort === 'priority' ? '⇅ Priority' : '⇅ Newest'}
           </button>
+          <button
+            className="seg-btn"
+            title={muted ? 'Chime muted — click to unmute' : 'Audio chime on new incidents — click to mute'}
+            onClick={() => {
+              const next = !muted;
+              setMuted(next);
+              localStorage.setItem('first10-chime-muted', next ? '1' : '0');
+            }}
+          >
+            {muted ? '🔕' : '🔔'}
+          </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -193,7 +261,9 @@ export default function ConsolePage() {
           >
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${t.severity !== null ? sevBar[t.severity] : 'bg-act'}`} />
-              <span className="microlabel">New incident</span>
+              <span className={`microlabel ${t.kind === 'high' ? 'text-sev!' : ''}`}>
+                {t.kind === 'high' ? 'Escalated to HIGH' : 'New incident'}
+              </span>
               <span className="ml-auto font-mono text-[0.68rem] text-ink-faint">{shortId(t.id)}</span>
             </div>
             <div className="mt-1 line-clamp-2 text-[0.88rem] font-medium">{t.summary}</div>
